@@ -321,6 +321,17 @@ function ToastHost({ toast }) {
 // ---------------------------------------------------------------------------
 // MODAL LOGIN JEFE
 // ---------------------------------------------------------------------------
+function ModalGuardando({ mensaje = "Guardando..." }) {
+  return (
+    <div className="fixed inset-0 z-[60] bg-black/40 flex items-center justify-center p-4">
+      <div className="bg-white rounded-2xl px-8 py-7 shadow-xl flex flex-col items-center gap-3">
+        <Loader2 size={28} className="animate-spin text-indigo-600" />
+        <p className="text-sm font-medium text-slate-900">{mensaje}</p>
+      </div>
+    </div>
+  );
+}
+
 function LoginJefeModal({ onClose, onSuccess }) {
   const [pw, setPw] = useState("");
   const [show, setShow] = useState(false);
@@ -429,14 +440,17 @@ function PantallaAsistencia({
   modoJefe, onIrHistorialPersona, claveTurno,
 }) {
   const [filaAbierta, setFilaAbierta] = useState(null);
+  const [busqueda, setBusqueda] = useState("");
 
   const visibles = useMemo(() => {
+    const q = busqueda.trim().toLowerCase();
     return colaboradores
       .filter(c => !ESTADOS_INACTIVOS.includes(c.estadoJefe))
       .filter(c => c.turnoActual === turnoSel)
       .filter(c => areaFiltro === "Todos" || c.area === areaFiltro)
+      .filter(c => !q || nombreCompleto(c).toLowerCase().includes(q) || (c.rut && c.rut.toLowerCase().includes(q)))
       .sort((a, b) => nombreCompleto(a).localeCompare(nombreCompleto(b)));
-  }, [colaboradores, turnoSel, areaFiltro]);
+  }, [colaboradores, turnoSel, areaFiltro, busqueda]);
 
   function setEstado(colabId, estado) {
     setEstadoLocal(prev => ({ ...prev, [colabId]: { ...prev[colabId], estado } }));
@@ -493,6 +507,13 @@ function PantallaAsistencia({
               </button>
             ))}
           </div>
+
+          <input
+            value={busqueda}
+            onChange={e => setBusqueda(e.target.value)}
+            placeholder="Buscar por RUT o nombre..."
+            className={inputBase + " max-w-xs"}
+          />
         </div>
 
         <button
@@ -617,6 +638,8 @@ function PantallaAsistencia({
           </tbody>
         </table>
       </Card>
+
+      {guardando && <ModalGuardando mensaje="Guardando asistencia del turno..." />}
     </div>
   );
 }
