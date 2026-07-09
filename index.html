@@ -99,6 +99,7 @@ const ROLES = [
   "Control Información SAP",
   "Supervisor Producción",
   "Supervisor Gestión",
+  "Tunelero",
 ];
 
 const PERIODOS = [
@@ -125,12 +126,18 @@ const COLABORADORES_DEFAULT = [
 // ---------------------------------------------------------------------------
 // HELPERS
 // ---------------------------------------------------------------------------
-const today = () => new Date().toISOString().slice(0, 10);
+function fechaLocalISO(d) {
+  const y = d.getFullYear();
+  const m = String(d.getMonth() + 1).padStart(2, "0");
+  const dia = String(d.getDate()).padStart(2, "0");
+  return `${y}-${m}-${dia}`;
+}
+const today = () => fechaLocalISO(new Date());
 function fmtFecha(iso) { if (!iso) return "—"; const [y, m, d] = iso.split("-"); return `${d}/${m}/${y}`; }
 function fmtHoy() { return new Date().toLocaleDateString("es-CL", { weekday: "long", day: "numeric", month: "long" }); }
 function iniciales(nombre = "") { return nombre.split(" ").map(n => n[0]).join("").slice(0, 2).toUpperCase(); }
 function nombreCompleto(c) { return [c.nombre, c.apellidoPaterno, c.apellidoMaterno].filter(Boolean).join(" "); }
-function diasAtras(n) { const d = new Date(); d.setDate(d.getDate() - n); return d.toISOString().slice(0, 10); }
+function diasAtras(n) { const d = new Date(); d.setDate(d.getDate() - n); return fechaLocalISO(d); }
 function normalizarRut(rut) { return String(rut || "").trim().toUpperCase().replace(/\./g, "").replace(/\s+/g, ""); }
 
 function normalizarRolImportado(cargoRaw) {
@@ -138,6 +145,7 @@ function normalizarRolImportado(cargoRaw) {
   const v = String(cargoRaw).trim().toUpperCase();
   if (v.includes("MOVILIZ")) return "Movilizador";
   if (v.includes("PACKING")) return "Operario de Packing";
+  if (v.includes("TUNELERO")) return "Tunelero";
   if (v.includes("MAQUINA") || v.includes("MÁQUINA")) return "Operador de Máquina";
   if (v.includes("JEFE") && v.includes("LINEA")) return "Jefe de Línea";
   if (v.includes("SAP")) return "Control Información SAP";
@@ -195,23 +203,37 @@ function parseCSV(texto) {
 // Ver apps_script_backend.gs para el código que va en el lado de Google Sheets.
 const APPS_SCRIPT_URL = "https://script.google.com/macros/s/AKfycbzCsIP5OlnsCUmqmIr3rZRFRj8p_zKwYhgv-nSV_KYCSox-BloAbVLI4ffKEOanzG-raA/exec";
 
-const INTERVALO_SINCRONIZACION_MS = 8000; // cada cuánto revisa cambios de otros dispositivos
+const INTERVALO_SINCRONIZACION_MS = 12000; // cada cuánto revisa cambios de otros dispositivos
+
+// Apps Script no maneja bien ejecuciones simultáneas: si varios datasets piden
+// datos al mismo tiempo, algunas solicitudes fallan o se demoran de más.
+// Esta cola asegura que todas las llamadas al backend se hagan una por una.
+let __colaBackend = Promise.resolve();
+function encolarBackend(fn) {
+  const resultado = __colaBackend.then(fn, fn);
+  __colaBackend = resultado.then(() => {}, () => {});
+  return resultado;
+}
 
 async function backendGet(key) {
-  const res = await fetch(`${APPS_SCRIPT_URL}?key=${encodeURIComponent(key)}`);
-  if (!res.ok) throw new Error(`HTTP ${res.status}`);
-  return res.json();
+  return encolarBackend(async () => {
+    const res = await fetch(`${APPS_SCRIPT_URL}?key=${encodeURIComponent(key)}`);
+    if (!res.ok) throw new Error(`HTTP ${res.status}`);
+    return res.json();
+  });
 }
 
 async function backendSet(key, value) {
-  // Content-Type "text/plain" evita el preflight CORS que Apps Script no maneja bien.
-  const res = await fetch(APPS_SCRIPT_URL, {
-    method: "POST",
-    headers: { "Content-Type": "text/plain;charset=utf-8" },
-    body: JSON.stringify({ key, value }),
+  return encolarBackend(async () => {
+    // Content-Type "text/plain" evita el preflight CORS que Apps Script no maneja bien.
+    const res = await fetch(APPS_SCRIPT_URL, {
+      method: "POST",
+      headers: { "Content-Type": "text/plain;charset=utf-8" },
+      body: JSON.stringify({ key, value }),
+    });
+    if (!res.ok) throw new Error(`HTTP ${res.status}`);
+    return res.json();
   });
-  if (!res.ok) throw new Error(`HTTP ${res.status}`);
-  return res.json();
 }
 
 function useSharedList(key) {
@@ -1014,6 +1036,115 @@ function ModalComentarioEstado({ colaborador, estadoNuevo, onClose, onConfirm })
 // ---------------------------------------------------------------------------
 // PANTALLA: ESTADO LABORAL
 // ---------------------------------------------------------------------------
+function ModalNuevoColaborador({ colaboradores, saveColaboradores, onToast, onClose }) {
+  const [form, setForm] = useState({
+    rut: "", nombre: "", apellidoPaterno: "", apellidoMaterno: "",
+    area: AREAS[0], rol: ROLES[0], turnoActual: "T1", estadoJefe: "activo", casillero: "",
+  });
+  const [guardando, setGuardando] = useState(false);
+
+  function set(campo, valor) {
+    setForm(f => ({ ...f, [campo]: valor }));
+  }
+
+  async function guardar() {
+    if (!form.nombre.trim() || !form.apellidoPaterno.trim()) {
+      onToast("Nombre y apellido paterno son obligatorios", "error");
+      return;
+    }
+    const rutNormalizado = normalizarRut(form.rut);
+    if (rutNormalizado && colaboradores.some(c => normalizarRut(c.rut) === rutNormalizado)) {
+      onToast("Ya existe un colaborador con ese RUT", "error");
+      return;
+    }
+    setGuardando(true);
+    const nuevoId = colaboradores.reduce((max, c) => Math.max(max, c.id), 0) + 1;
+    const nuevo = {
+      id: nuevoId,
+      rut: rutNormalizado,
+      nombre: form.nombre.trim(),
+      apellidoPaterno: form.apellidoPaterno.trim(),
+      apellidoMaterno: form.apellidoMaterno.trim(),
+      area: form.area,
+      rol: form.rol,
+      turnoActual: form.turnoActual,
+      estadoJefe: form.estadoJefe,
+      casillero: form.casillero.trim(),
+    };
+    const ok = await saveColaboradores([...colaboradores, nuevo]);
+    setGuardando(false);
+    onToast(ok ? `${nombreCompleto(nuevo)} agregado` : "Error al guardar", ok ? "ok" : "error");
+    if (ok) onClose();
+  }
+
+  return (
+    <div className="fixed inset-0 z-50 bg-black/40 flex items-center justify-center p-4" onClick={onClose}>
+      <div onClick={e => e.stopPropagation()} className="bg-white rounded-2xl w-full max-w-md p-6 space-y-4 shadow-xl max-h-[90vh] overflow-y-auto">
+        <div className="flex items-center justify-between">
+          <h2 className="font-semibold text-slate-900">Agregar colaborador</h2>
+          <button onClick={onClose} className="p-1 rounded-lg hover:bg-slate-100"><XIcon size={18} /></button>
+        </div>
+
+        <div className="grid grid-cols-2 gap-3">
+          <div className="col-span-2">
+            <label className="text-xs text-slate-500 mb-1 block">RUT</label>
+            <input value={form.rut} onChange={e => set("rut", e.target.value)} placeholder="12345678-9" className={inputBase} />
+          </div>
+          <div className="col-span-2">
+            <label className="text-xs text-slate-500 mb-1 block">Nombre *</label>
+            <input value={form.nombre} onChange={e => set("nombre", e.target.value)} className={inputBase} />
+          </div>
+          <div>
+            <label className="text-xs text-slate-500 mb-1 block">Apellido paterno *</label>
+            <input value={form.apellidoPaterno} onChange={e => set("apellidoPaterno", e.target.value)} className={inputBase} />
+          </div>
+          <div>
+            <label className="text-xs text-slate-500 mb-1 block">Apellido materno</label>
+            <input value={form.apellidoMaterno} onChange={e => set("apellidoMaterno", e.target.value)} className={inputBase} />
+          </div>
+          <div>
+            <label className="text-xs text-slate-500 mb-1 block">Área</label>
+            <select value={form.area} onChange={e => set("area", e.target.value)} className={inputBase}>
+              {AREAS.map(a => <option key={a} value={a}>{a}</option>)}
+            </select>
+          </div>
+          <div>
+            <label className="text-xs text-slate-500 mb-1 block">Cargo</label>
+            <select value={form.rol} onChange={e => set("rol", e.target.value)} className={inputBase}>
+              {ROLES.map(r => <option key={r} value={r}>{r}</option>)}
+            </select>
+          </div>
+          <div>
+            <label className="text-xs text-slate-500 mb-1 block">Turno</label>
+            <select value={form.turnoActual} onChange={e => set("turnoActual", e.target.value)} className={inputBase}>
+              {TURNOS.map(t => <option key={t.key} value={t.key}>{t.label}</option>)}
+            </select>
+          </div>
+          <div>
+            <label className="text-xs text-slate-500 mb-1 block">Casillero</label>
+            <input value={form.casillero} onChange={e => set("casillero", e.target.value)} className={inputBase} />
+          </div>
+          <div className="col-span-2">
+            <label className="text-xs text-slate-500 mb-1 block">Estado laboral</label>
+            <select value={form.estadoJefe} onChange={e => set("estadoJefe", e.target.value)} className={inputBase}>
+              {OPCIONES_JEFE.map(o => <option key={o.key} value={o.key}>{o.label}</option>)}
+            </select>
+          </div>
+        </div>
+
+        <button
+          onClick={guardar}
+          disabled={guardando}
+          className="w-full rounded-xl bg-indigo-600 text-white py-2.5 text-sm font-medium disabled:opacity-50 hover:bg-indigo-700 flex items-center justify-center gap-2"
+        >
+          {guardando ? <Loader2 size={16} className="animate-spin" /> : <Plus size={16} />}
+          Agregar colaborador
+        </button>
+      </div>
+    </div>
+  );
+}
+
 function PantallaEstadoLaboral({ colaboradores, saveColaboradores, historialEstado, saveHistorialEstado, notas, saveNotas, onToast, onIrHistorialPersona }) {
   const [filtro, setFiltro] = useState("Todos");
   const [busqueda, setBusqueda] = useState("");
@@ -1024,6 +1155,7 @@ function PantallaEstadoLaboral({ colaboradores, saveColaboradores, historialEsta
   const [pendingCambio, setPendingCambio] = useState(null); // { colaborador, estadoNuevo }
   const [importando, setImportando] = useState(false);
   const [actualizarExistentes, setActualizarExistentes] = useState(false);
+  const [mostrarNuevoColaborador, setMostrarNuevoColaborador] = useState(false);
   const fileInputRef = useRef(null);
 
   const lista = useMemo(() => {
@@ -1248,12 +1380,20 @@ function PantallaEstadoLaboral({ colaboradores, saveColaboradores, historialEsta
         </label>
       </Card>
 
-      <input
-        value={busqueda}
-        onChange={e => setBusqueda(e.target.value)}
-        placeholder="Buscar por RUT o nombre..."
-        className={inputBase + " max-w-sm"}
-      />
+      <div className="flex items-center gap-3">
+        <input
+          value={busqueda}
+          onChange={e => setBusqueda(e.target.value)}
+          placeholder="Buscar por RUT o nombre..."
+          className={inputBase + " max-w-sm"}
+        />
+        <button
+          onClick={() => setMostrarNuevoColaborador(true)}
+          className="rounded-xl bg-slate-900 text-white px-3.5 py-2.5 text-xs font-medium hover:bg-slate-800 flex items-center gap-1.5 shrink-0"
+        >
+          <Plus size={14} /> Agregar colaborador
+        </button>
+      </div>
 
       <div className="flex gap-1.5 flex-wrap">
         {["Todos", ...OPCIONES_JEFE.map(o => o.key)].map(f => {
@@ -1395,6 +1535,15 @@ function PantallaEstadoLaboral({ colaboradores, saveColaboradores, historialEsta
           estadoNuevo={pendingCambio.estadoNuevo}
           onClose={() => setPendingCambio(null)}
           onConfirm={confirmarCambioEstado}
+        />
+      )}
+
+      {mostrarNuevoColaborador && (
+        <ModalNuevoColaborador
+          colaboradores={colaboradores}
+          saveColaboradores={saveColaboradores}
+          onToast={onToast}
+          onClose={() => setMostrarNuevoColaborador(false)}
         />
       )}
     </div>
