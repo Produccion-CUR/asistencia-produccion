@@ -1,0 +1,1778 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1.0" />
+<title>Asistencia de Producción — Planta Curicó</title>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/react/18.2.0/umd/react.production.min.js"></script>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/react-dom/18.2.0/umd/react-dom.production.min.js"></script>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/babel-standalone/7.22.20/babel.min.js"></script>
+<script src="https://cdn.tailwindcss.com"></script>
+<style>
+  body { font-family: ui-sans-serif, system-ui, -apple-system, sans-serif; }
+  @keyframes spin { to { transform: rotate(360deg); } }
+  .animate-spin { animation: spin 1s linear infinite; }
+</style>
+</head>
+<body class="bg-slate-50">
+<div id="root"></div>
+
+<script type="text/babel" data-presets="react">
+const { useState, useEffect, useMemo, useCallback, useRef, Fragment } = React;
+
+// ---------------------------------------------------------------------------
+// ICONOS (SVG propios, sin dependencias externas)
+// ---------------------------------------------------------------------------
+function Icon({ children, size = 16, className = "", ...props }) {
+  return (
+    <svg width={size} height={size} viewBox="0 0 24 24" fill="none" stroke="currentColor"
+      strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" className={className} {...props}>
+      {children}
+    </svg>
+  );
+}
+const CheckCircle2 = (p) => <Icon {...p}><circle cx="12" cy="12" r="9" /><path d="M8.5 12.5l2.2 2.2 4.8-5" /></Icon>;
+const XCircle = (p) => <Icon {...p}><circle cx="12" cy="12" r="9" /><path d="M9 9l6 6M15 9l-6 6" /></Icon>;
+const Stethoscope = (p) => <Icon {...p}><path d="M6 4v5a4 4 0 0 0 8 0V4" /><path d="M10 17a4 4 0 0 0 8 0v-2" /><circle cx="19" cy="9" r="1.6" /><path d="M6 4H4M14 4h2" /></Icon>;
+const Palmtree = (p) => <Icon {...p}><path d="M12 22V10" /><path d="M12 10c-3-3-7-2-9 0 2 2 6 2 9 0z" /><path d="M12 10c3-3 7-2 9 0-2 2-6 2-9 0z" /><path d="M12 10c-1-3 0-6 2-8" /></Icon>;
+const BarChart3 = (p) => <Icon {...p}><path d="M4 20V10M12 20V4M20 20v-7" /></Icon>;
+const UsersIcon = (p) => <Icon {...p}><circle cx="9" cy="8" r="3" /><path d="M2 20c0-3.5 3-6 7-6s7 2.5 7 6" /><path d="M16 6.5a3 3 0 0 1 0 5.8M22 20c0-2.8-2-5-5-5.8" /></Icon>;
+const ArrowLeft = (p) => <Icon {...p}><path d="M19 12H5M11 6l-6 6 6 6" /></Icon>;
+const ChevronDown = (p) => <Icon {...p}><path d="M6 9l6 6 6-6" /></Icon>;
+const ChevronRight = (p) => <Icon {...p}><path d="M9 6l6 6-6 6" /></Icon>;
+const Clock = (p) => <Icon {...p}><circle cx="12" cy="12" r="9" /><path d="M12 7v5l3.5 2" /></Icon>;
+const HistoryIcon = (p) => <Icon {...p}><path d="M3 12a9 9 0 1 0 3-6.7" /><path d="M3 4v5h5" /><path d="M12 8v4l3 2" /></Icon>;
+const CalendarDays = (p) => <Icon {...p}><rect x="3" y="5" width="18" height="16" rx="2" /><path d="M3 10h18M8 3v4M16 3v4" /><path d="M8 14h.01M12 14h.01M16 14h.01M8 17h.01M12 17h.01" /></Icon>;
+const TrendingDown = (p) => <Icon {...p}><path d="M3 7l7 7 4-4 7 7" /><path d="M21 10v7h-7" /></Icon>;
+const Sun = (p) => <Icon {...p}><circle cx="12" cy="12" r="4" /><path d="M12 2v2M12 20v2M4.9 4.9l1.4 1.4M17.7 17.7l1.4 1.4M2 12h2M20 12h2M4.9 19.1l1.4-1.4M17.7 6.3l1.4-1.4" /></Icon>;
+const Moon = (p) => <Icon {...p}><path d="M20 14.5A8.5 8.5 0 1 1 9.5 4a7 7 0 0 0 10.5 10.5z" /></Icon>;
+const Check = (p) => <Icon {...p}><path d="M5 12l5 5L20 7" /></Icon>;
+const Lock = (p) => <Icon {...p}><rect x="4" y="10" width="16" height="11" rx="2" /><path d="M8 10V7a4 4 0 0 1 8 0v3" /></Icon>;
+const LogOut = (p) => <Icon {...p}><path d="M9 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h4" /><path d="M16 17l5-5-5-5" /><path d="M21 12H9" /></Icon>;
+const Loader2 = (p) => <Icon {...p}><path d="M12 3a9 9 0 1 0 9 9" /></Icon>;
+const Save = (p) => <Icon {...p}><path d="M5 4h11l3 3v13a1 1 0 0 1-1 1H5a1 1 0 0 1-1-1V5a1 1 0 0 1 1-1z" /><path d="M8 4v5h7V4M8 14h8v6H8z" /></Icon>;
+const XIcon = (p) => <Icon {...p}><path d="M6 6l12 12M18 6L6 18" /></Icon>;
+const Eye = (p) => <Icon {...p}><path d="M2 12s3.5-7 10-7 10 7 10 7-3.5 7-10 7-10-7-10-7z" /><circle cx="12" cy="12" r="3" /></Icon>;
+const EyeOff = (p) => <Icon {...p}><path d="M3 3l18 18" /><path d="M10.6 5.2A10.6 10.6 0 0 1 12 5c6.5 0 10 7 10 7a15 15 0 0 1-3.3 4.2M6.5 6.6A15.5 15.5 0 0 0 2 12s3.5 7 10 7a10 10 0 0 0 4-.8" /><path d="M9.5 9.5a3 3 0 0 0 4.2 4.2" /></Icon>;
+const Pencil = (p) => <Icon {...p}><path d="M12 20h9" /><path d="M16.5 3.5a2.1 2.1 0 0 1 3 3L7 19l-4 1 1-4z" /></Icon>;
+const LayoutGrid = (p) => <Icon {...p}><rect x="3" y="3" width="8" height="8" rx="1.5" /><rect x="13" y="3" width="8" height="8" rx="1.5" /><rect x="3" y="13" width="8" height="8" rx="1.5" /><rect x="13" y="13" width="8" height="8" rx="1.5" /></Icon>;
+const Flag = (p) => <Icon {...p}><path d="M5 3v18" /><path d="M5 4h11l-2 4 2 4H5" /></Icon>;
+const Plus = (p) => <Icon {...p}><path d="M12 5v14M5 12h14" /></Icon>;
+
+// ---------------------------------------------------------------------------
+// CONSTANTES
+// ---------------------------------------------------------------------------
+const CLAVE_JEFE = "asistencia2026";
+
+const TURNOS = [
+  { key: "T1", label: "T1 · Día", Icon: Sun },
+  { key: "T2", label: "T2 · Tarde", Icon: Clock },
+  { key: "T3", label: "T3 · Noche", Icon: Moon },
+];
+
+const AREAS = ["Lavado", "Selección", "Envasado"];
+
+const ESTADOS_ASIST = [
+  { key: "A", label: "Asistió", Icon: CheckCircle2, bg: "bg-emerald-500", light: "bg-emerald-100", texto: "text-emerald-700", ring: "ring-emerald-400" },
+  { key: "F", label: "Falta", Icon: XCircle, bg: "bg-red-500", light: "bg-red-100", texto: "text-red-700", ring: "ring-red-400" },
+  { key: "L", label: "Licencia", Icon: Stethoscope, bg: "bg-blue-500", light: "bg-blue-100", texto: "text-blue-700", ring: "ring-blue-400" },
+  { key: "V", label: "Vacaciones", Icon: Palmtree, bg: "bg-amber-500", light: "bg-amber-100", texto: "text-amber-700", ring: "ring-amber-400" },
+];
+const ESTADO_MAP = Object.fromEntries(ESTADOS_ASIST.map(e => [e.key, e]));
+
+const OPCIONES_JEFE = [
+  { key: "activo", label: "Activo", bg: "bg-emerald-500", light: "bg-emerald-100 text-emerald-800 border-emerald-300" },
+  { key: "observado", label: "En observación", bg: "bg-amber-500", light: "bg-amber-100 text-amber-800 border-amber-300" },
+  { key: "volver_a_llamar", label: "Volver a llamar", bg: "bg-sky-600", light: "bg-sky-100 text-sky-800 border-sky-300" },
+  { key: "prohibido", label: "Prohibido Ingreso / No volver a llamar", bg: "bg-orange-700", light: "bg-orange-100 text-orange-900 border-orange-400" },
+  { key: "desvinculado_plazo_fijo", label: "Desvinculado · Término contrato plazo fijo", bg: "bg-red-600", light: "bg-red-100 text-red-800 border-red-300" },
+  { key: "desvinculado_temporada", label: "Desvinculado · Término de temporada", bg: "bg-red-800", light: "bg-red-100 text-red-900 border-red-400" },
+];
+
+const ESTADOS_INACTIVOS = ["prohibido", "desvinculado_plazo_fijo", "desvinculado_temporada", "volver_a_llamar"];
+
+const ROLES = [
+  "Movilizador",
+  "Operario de Packing",
+  "Operador de Máquina",
+  "Jefe de Línea",
+  "Control Información SAP",
+  "Supervisor Producción",
+  "Supervisor Gestión",
+];
+
+const PERIODOS = [
+  { key: 7, label: "7 días" },
+  { key: 15, label: "15 días" },
+  { key: 30, label: "30 días" },
+  { key: 60, label: "60 días" },
+  { key: "custom", label: "Personalizado" },
+];
+
+const COLABORADORES_DEFAULT = [
+  { id: 1, rut: "11111111-1", nombre: "Carlos", apellidoPaterno: "Muñoz", apellidoMaterno: "", area: "Selección", rol: "Operario de Packing", turnoActual: "T1", estadoJefe: "activo", casillero: "C-01" },
+  { id: 2, rut: "22222222-2", nombre: "Ana", apellidoPaterno: "Torres", apellidoMaterno: "", area: "Selección", rol: "Jefe de Línea", turnoActual: "T1", estadoJefe: "activo", casillero: "C-02" },
+  { id: 3, rut: "33333333-3", nombre: "Luis", apellidoPaterno: "Araya", apellidoMaterno: "", area: "Selección", rol: "Supervisor Producción", turnoActual: "T2", estadoJefe: "observado", casillero: "C-03" },
+  { id: 4, rut: "44444444-4", nombre: "Paola", apellidoPaterno: "Vera", apellidoMaterno: "", area: "Lavado", rol: "Operario de Packing", turnoActual: "T1", estadoJefe: "activo", casillero: "C-04" },
+  { id: 5, rut: "55555555-5", nombre: "Jorge", apellidoPaterno: "Espinoza", apellidoMaterno: "", area: "Lavado", rol: "Operador de Máquina", turnoActual: "T3", estadoJefe: "activo", casillero: "C-05" },
+  { id: 6, rut: "66666666-6", nombre: "Camila", apellidoPaterno: "Ríos", apellidoMaterno: "", area: "Envasado", rol: "Operario de Packing", turnoActual: "T2", estadoJefe: "activo", casillero: "C-06" },
+  { id: 7, rut: "77777777-7", nombre: "Rodrigo", apellidoPaterno: "Silva", apellidoMaterno: "", area: "Envasado", rol: "Operario de Packing", turnoActual: "T2", estadoJefe: "desvinculado_temporada", casillero: "C-07" },
+  { id: 8, rut: "88888888-8", nombre: "María", apellidoPaterno: "Contreras", apellidoMaterno: "", area: "Selección", rol: "Movilizador", turnoActual: "T1", estadoJefe: "activo", casillero: "C-08" },
+  { id: 9, rut: "99999999-9", nombre: "Felipe", apellidoPaterno: "Morales", apellidoMaterno: "", area: "Lavado", rol: "Operador de Máquina", turnoActual: "T3", estadoJefe: "observado", casillero: "C-09" },
+  { id: 10, rut: "10101010-1", nombre: "Sandra", apellidoPaterno: "Pérez", apellidoMaterno: "", area: "Envasado", rol: "Control Información SAP", turnoActual: "T1", estadoJefe: "activo", casillero: "C-10" },
+];
+
+// ---------------------------------------------------------------------------
+// HELPERS
+// ---------------------------------------------------------------------------
+const today = () => new Date().toISOString().slice(0, 10);
+function fmtFecha(iso) { if (!iso) return "—"; const [y, m, d] = iso.split("-"); return `${d}/${m}/${y}`; }
+function fmtHoy() { return new Date().toLocaleDateString("es-CL", { weekday: "long", day: "numeric", month: "long" }); }
+function iniciales(nombre = "") { return nombre.split(" ").map(n => n[0]).join("").slice(0, 2).toUpperCase(); }
+function nombreCompleto(c) { return [c.nombre, c.apellidoPaterno, c.apellidoMaterno].filter(Boolean).join(" "); }
+function diasAtras(n) { const d = new Date(); d.setDate(d.getDate() - n); return d.toISOString().slice(0, 10); }
+function normalizarRut(rut) { return String(rut || "").trim().toUpperCase().replace(/\./g, "").replace(/\s+/g, ""); }
+
+function normalizarRolImportado(cargoRaw) {
+  if (!cargoRaw) return "Operario de Packing";
+  const v = String(cargoRaw).trim().toUpperCase();
+  if (v.includes("MOVILIZ")) return "Movilizador";
+  if (v.includes("PACKING")) return "Operario de Packing";
+  if (v.includes("MAQUINA") || v.includes("MÁQUINA")) return "Operador de Máquina";
+  if (v.includes("JEFE") && v.includes("LINEA")) return "Jefe de Línea";
+  if (v.includes("SAP")) return "Control Información SAP";
+  if (v.includes("SUPERVISOR") && (v.includes("GESTION") || v.includes("GESTIÓN"))) return "Supervisor Gestión";
+  if (v.includes("SUPERVISOR")) return "Supervisor Producción";
+  // Si ya viene exactamente en la lista válida, se respeta tal cual.
+  const exacto = ROLES.find(r => r.toUpperCase() === v);
+  if (exacto) return exacto;
+  return "Operario de Packing";
+}
+
+function normalizarEstadoLaboralImportado(valorRaw) {
+  if (!valorRaw) return "activo";
+  const v = String(valorRaw).trim().toUpperCase();
+  if (v.includes("NO VOLVER")) return "prohibido";
+  if (v.includes("VOLVER A LLAMAR")) return "volver_a_llamar";
+  const exacto = OPCIONES_JEFE.find(o => o.key === valorRaw || o.label.toUpperCase() === v);
+  if (exacto) return exacto.key;
+  return "activo";
+}
+
+// Parser CSV simple (soporta comillas dobles para campos con comas)
+function parseCSV(texto) {
+  const lineas = texto.split(/\r?\n/).filter(l => l.trim().length > 0);
+  if (lineas.length < 2) return [];
+  function parseLinea(linea) {
+    const campos = [];
+    let actual = "";
+    let entreComillas = false;
+    for (let i = 0; i < linea.length; i++) {
+      const ch = linea[i];
+      if (ch === '"') { entreComillas = !entreComillas; }
+      else if (ch === "," && !entreComillas) { campos.push(actual.trim()); actual = ""; }
+      else { actual += ch; }
+    }
+    campos.push(actual.trim());
+    return campos;
+  }
+  const headers = parseLinea(lineas[0]).map(h => h.toLowerCase());
+  return lineas.slice(1).map(linea => {
+    const valores = parseLinea(linea);
+    const obj = {};
+    headers.forEach((h, i) => { obj[h] = (valores[i] || "").trim(); });
+    return obj;
+  });
+}
+
+// ---------------------------------------------------------------------------
+// STORAGE
+// ---------------------------------------------------------------------------
+// ---------------------------------------------------------------------------
+// CONFIGURACIÓN DEL BACKEND (Google Apps Script + Google Sheets)
+// ---------------------------------------------------------------------------
+// Pega aquí la URL de tu deployment de Apps Script (termina en /exec).
+// Ver apps_script_backend.gs para el código que va en el lado de Google Sheets.
+const APPS_SCRIPT_URL = "https://script.google.com/macros/s/AKfycbzCsIP5OlnsCUmqmIr3rZRFRj8p_zKwYhgv-nSV_KYCSox-BloAbVLI4ffKEOanzG-raA/exec";
+
+const INTERVALO_SINCRONIZACION_MS = 8000; // cada cuánto revisa cambios de otros dispositivos
+
+async function backendGet(key) {
+  const res = await fetch(`${APPS_SCRIPT_URL}?key=${encodeURIComponent(key)}`);
+  if (!res.ok) throw new Error(`HTTP ${res.status}`);
+  return res.json();
+}
+
+async function backendSet(key, value) {
+  // Content-Type "text/plain" evita el preflight CORS que Apps Script no maneja bien.
+  const res = await fetch(APPS_SCRIPT_URL, {
+    method: "POST",
+    headers: { "Content-Type": "text/plain;charset=utf-8" },
+    body: JSON.stringify({ key, value }),
+  });
+  if (!res.ok) throw new Error(`HTTP ${res.status}`);
+  return res.json();
+}
+
+function useSharedList(key) {
+  const [items, setItems] = useState([]);
+  const [loading, setLoading] = useState(true);
+  const [error, setError] = useState(null);
+  const ultimoValorCrudo = useRef(null);
+
+  const cargar = useCallback(async (mostrarLoading) => {
+    if (mostrarLoading) setLoading(true);
+    try {
+      const data = await backendGet(key);
+      if (data?.value && data.value !== ultimoValorCrudo.current) {
+        ultimoValorCrudo.current = data.value;
+        setItems(JSON.parse(data.value));
+      }
+      setError(null);
+    } catch (e) {
+      setError(`No se pudo conectar con la base de datos: ${e?.message}`);
+    }
+    if (mostrarLoading) setLoading(false);
+  }, [key]);
+
+  useEffect(() => {
+    cargar(true);
+    const intervalo = setInterval(() => cargar(false), INTERVALO_SINCRONIZACION_MS);
+    return () => clearInterval(intervalo);
+  }, [cargar]);
+
+  const save = useCallback(async (newItems) => {
+    setItems(newItems);
+    const crudo = JSON.stringify(newItems);
+    ultimoValorCrudo.current = crudo;
+    try {
+      const data = await backendSet(key, crudo);
+      if (!data?.ok) { setError("No se pudo guardar."); return false; }
+      setError(null);
+      return true;
+    } catch (e) { setError(`Error: ${e?.message}`); return false; }
+  }, [key]);
+
+  return [items, save, loading, error];
+}
+
+// ---------------------------------------------------------------------------
+// COMPONENTES BASE
+// ---------------------------------------------------------------------------
+const inputBase = "w-full rounded-xl border border-slate-200 bg-slate-50 px-3 py-2.5 text-sm focus:outline-none focus:ring-2 focus:ring-indigo-300";
+
+function Card({ children, className = "" }) {
+  return <div className={`bg-white rounded-2xl border border-slate-200 p-5 ${className}`}>{children}</div>;
+}
+
+function Toast({ message, kind = "ok" }) {
+  const styles = { ok: "bg-emerald-50 border-emerald-300 text-emerald-800", error: "bg-red-50 border-red-300 text-red-800" };
+  return <div className={`rounded-xl border px-4 py-3 text-sm shadow-lg ${styles[kind]}`}>{message}</div>;
+}
+
+function Loader() {
+  return <p className="text-sm text-slate-500 flex items-center gap-2 py-4 justify-center"><Loader2 size={16} className="animate-spin" /> Cargando…</p>;
+}
+
+function TurnoChip({ turno }) {
+  const t = TURNOS.find(t => t.key === turno);
+  if (!t) return null;
+  return <span className="text-xs font-medium bg-slate-100 text-slate-600 rounded-full px-2 py-0.5 flex items-center gap-1 shrink-0 w-fit"><t.Icon size={10} />{turno}</span>;
+}
+
+function EstadoJefeBadge({ estado }) {
+  if (!estado || estado === "activo") return null;
+  const opcion = OPCIONES_JEFE.find(o => o.key === estado);
+  if (!opcion) return null;
+  return <span className={`text-xs rounded-full px-2 py-0.5 font-medium shrink-0 w-fit border ${opcion.light}`}>{opcion.label}</span>;
+}
+
+function ToastHost({ toast }) {
+  if (!toast) return null;
+  return (
+    <div className="fixed bottom-6 right-6 z-50 w-full max-w-sm">
+      <Toast message={toast.msg} kind={toast.kind} />
+    </div>
+  );
+}
+
+// ---------------------------------------------------------------------------
+// MODAL LOGIN JEFE
+// ---------------------------------------------------------------------------
+function LoginJefeModal({ onClose, onSuccess }) {
+  const [pw, setPw] = useState("");
+  const [show, setShow] = useState(false);
+  const [error, setError] = useState("");
+
+  function submit() {
+    const limpio = pw.trim();
+    if (limpio.length === 0) { setError("Ingresa la clave de acceso"); return; }
+    if (limpio === CLAVE_JEFE) {
+      setError("");
+      onSuccess();
+    } else {
+      setError("Clave incorrecta. Inténtalo de nuevo.");
+      setPw("");
+    }
+  }
+
+  function handleKeyDown(e) {
+    if (e.key === "Enter") submit();
+  }
+
+  return (
+    <div className="fixed inset-0 z-50 bg-black/40 flex items-center justify-center p-4" onClick={onClose}>
+      <div onClick={e => e.stopPropagation()} className="bg-white rounded-2xl w-full max-w-sm p-6 space-y-4 shadow-xl">
+        <div className="flex items-center justify-between">
+          <h2 className="font-semibold text-slate-900 flex items-center gap-2"><Lock size={18} /> Modo Jefe</h2>
+          <button type="button" onClick={onClose} className="p-1 rounded-lg hover:bg-slate-100"><XIcon size={18} /></button>
+        </div>
+        <div>
+          <div className="relative">
+            <input
+              autoFocus
+              type={show ? "text" : "password"}
+              value={pw}
+              onChange={e => { setPw(e.target.value); if (error) setError(""); }}
+              onKeyDown={handleKeyDown}
+              placeholder="Clave de acceso"
+              className={inputBase + " pr-10" + (error ? " ring-2 ring-red-300 border-red-300" : "")}
+            />
+            <button type="button" onClick={() => setShow(s => !s)} className="absolute right-2 top-1/2 -translate-y-1/2 text-slate-400">
+              {show ? <EyeOff size={16} /> : <Eye size={16} />}
+            </button>
+          </div>
+          {error && <p className="text-xs text-red-600 mt-1.5">{error}</p>}
+        </div>
+        <button type="button" onClick={submit} className="w-full rounded-xl bg-slate-900 text-white py-2.5 text-sm font-medium hover:bg-slate-800">Ingresar</button>
+      </div>
+    </div>
+  );
+}
+
+// ---------------------------------------------------------------------------
+// SIDEBAR
+// ---------------------------------------------------------------------------
+function Sidebar({ vista, setVista, modoJefe, onLogin, onLogout }) {
+  const NavItem = ({ id, label, IconComp, disabled }) => (
+    <button
+      onClick={() => !disabled && setVista(id)}
+      disabled={disabled}
+      className={`w-full flex items-center gap-3 px-3.5 py-2.5 rounded-xl text-sm font-medium transition
+        ${vista === id ? "bg-indigo-600 text-white" : disabled ? "text-slate-300 cursor-not-allowed" : "text-slate-600 hover:bg-slate-100"}`}
+    >
+      <IconComp size={17} />
+      {label}
+    </button>
+  );
+
+  return (
+    <aside className="w-64 shrink-0 bg-white border-r border-slate-200 h-screen sticky top-0 flex flex-col">
+      <div className="px-5 py-5 border-b border-slate-100">
+        <p className="font-semibold text-slate-900 leading-tight">Asistencia de Producción</p>
+        <p className="text-xs text-slate-400 mt-0.5">Planta Curicó</p>
+      </div>
+
+      <nav className="flex-1 px-3 py-4 space-y-1">
+        <NavItem id="asistencia" label="Asistencia" IconComp={LayoutGrid} />
+        <NavItem id="indicadores" label="Indicadores" IconComp={BarChart3} disabled={!modoJefe} />
+        <NavItem id="estadoLaboral" label="Estado laboral" IconComp={UsersIcon} disabled={!modoJefe} />
+        <NavItem id="historial" label="Historial por persona" IconComp={HistoryIcon} disabled={!modoJefe} />
+      </nav>
+
+      <div className="px-3 py-4 border-t border-slate-100">
+        {modoJefe ? (
+          <div className="space-y-2">
+            <span className="block px-3.5 text-xs font-medium text-emerald-600">● Modo Jefe activo</span>
+            <button onClick={onLogout} className="w-full flex items-center gap-2 px-3.5 py-2.5 rounded-xl text-sm font-medium text-slate-600 hover:bg-slate-100">
+              <LogOut size={16} /> Salir de modo Jefe
+            </button>
+          </div>
+        ) : (
+          <button onClick={onLogin} className="w-full flex items-center gap-2 px-3.5 py-2.5 rounded-xl text-sm font-medium text-slate-600 hover:bg-slate-100">
+            <Lock size={16} /> Entrar como Jefe
+          </button>
+        )}
+      </div>
+    </aside>
+  );
+}
+
+// ---------------------------------------------------------------------------
+// PANTALLA: ASISTENCIA (tabla)
+// ---------------------------------------------------------------------------
+function PantallaAsistencia({
+  colaboradores, registros, estadoLocal, setEstadoLocal, turnoSel, setTurnoSel,
+  fechaSel, setFechaSel, areaFiltro, setAreaFiltro, onGuardar, guardando,
+  modoJefe, onIrHistorialPersona, claveTurno,
+}) {
+  const [filaAbierta, setFilaAbierta] = useState(null);
+
+  const visibles = useMemo(() => {
+    return colaboradores
+      .filter(c => !ESTADOS_INACTIVOS.includes(c.estadoJefe))
+      .filter(c => c.turnoActual === turnoSel)
+      .filter(c => areaFiltro === "Todos" || c.area === areaFiltro)
+      .sort((a, b) => nombreCompleto(a).localeCompare(nombreCompleto(b)));
+  }, [colaboradores, turnoSel, areaFiltro]);
+
+  function setEstado(colabId, estado) {
+    setEstadoLocal(prev => ({ ...prev, [colabId]: { ...prev[colabId], estado } }));
+  }
+  function setObs(colabId, obs) {
+    setEstadoLocal(prev => ({ ...prev, [colabId]: { ...prev[colabId], obs } }));
+  }
+  function marcarTodos(estado) {
+    setEstadoLocal(prev => {
+      const next = { ...prev };
+      visibles.forEach(c => { next[c.id] = { ...next[c.id], estado }; });
+      return next;
+    });
+  }
+
+  const resumen = ESTADOS_ASIST.map(e => ({
+    ...e,
+    count: visibles.filter(c => estadoLocal[c.id]?.estado === e.key).length,
+  }));
+  const sinMarcar = visibles.filter(c => !estadoLocal[c.id]?.estado).length;
+
+  return (
+    <div className="space-y-5">
+      <div className="flex flex-wrap items-center gap-3 justify-between">
+        <div className="flex items-center gap-3 flex-wrap">
+          <div className="flex items-center gap-2 bg-white border border-slate-200 rounded-xl px-3 py-2">
+            <CalendarDays size={16} className="text-slate-400" />
+            <input type="date" value={fechaSel} onChange={e => setFechaSel(e.target.value)} className="text-sm bg-transparent focus:outline-none" />
+            <span className="text-xs text-slate-400 capitalize border-l border-slate-200 pl-2">{fmtHoy()}</span>
+          </div>
+
+          <div className="flex bg-white border border-slate-200 rounded-xl p-1 gap-1">
+            {TURNOS.map(t => (
+              <button
+                key={t.key}
+                onClick={() => setTurnoSel(t.key)}
+                className={`px-3 py-1.5 rounded-lg text-xs font-medium flex items-center gap-1.5 transition
+                  ${turnoSel === t.key ? "bg-slate-900 text-white" : "text-slate-600 hover:bg-slate-100"}`}
+              >
+                <t.Icon size={14} /> {t.label}
+              </button>
+            ))}
+          </div>
+
+          <div className="flex gap-1.5">
+            {["Todos", ...AREAS].map(a => (
+              <button
+                key={a}
+                onClick={() => setAreaFiltro(a)}
+                className={`rounded-full px-3 py-1.5 text-xs font-medium border transition
+                  ${areaFiltro === a ? "bg-indigo-600 text-white border-indigo-600" : "bg-white text-slate-600 border-slate-200 hover:bg-slate-50"}`}
+              >
+                {a}
+              </button>
+            ))}
+          </div>
+        </div>
+
+        <button
+          onClick={onGuardar}
+          disabled={guardando || visibles.length === 0}
+          className="rounded-xl bg-indigo-600 disabled:opacity-50 text-white px-5 py-2.5 text-sm font-medium flex items-center gap-2 hover:bg-indigo-700"
+        >
+          {guardando ? <Loader2 size={16} className="animate-spin" /> : <Save size={16} />}
+          Guardar asistencia del turno
+        </button>
+      </div>
+
+      <div className="flex items-center justify-between flex-wrap gap-3">
+        <div className="flex gap-2 flex-wrap">
+          {resumen.map(r => (
+            <span key={r.key} className={`text-xs font-medium rounded-full px-2.5 py-1 ${r.light} ${r.texto}`}>
+              {r.label}: {r.count}
+            </span>
+          ))}
+          {sinMarcar > 0 && <span className="text-xs font-medium rounded-full px-2.5 py-1 bg-slate-100 text-slate-500">Sin marcar: {sinMarcar}</span>}
+        </div>
+        <div className="flex gap-2 items-center">
+          <span className="text-xs text-slate-500">Marcar todos:</span>
+          {ESTADOS_ASIST.map(e => (
+            <button
+              key={e.key}
+              onClick={() => marcarTodos(e.key)}
+              className={`w-8 h-8 rounded-lg ${e.light} ${e.texto} flex items-center justify-center hover:opacity-80`}
+              title={e.label}
+            >
+              <e.Icon size={15} />
+            </button>
+          ))}
+        </div>
+      </div>
+
+      <Card className="!p-0 overflow-hidden">
+        <table className="w-full text-sm">
+          <thead>
+            <tr className="bg-slate-50 border-b border-slate-200 text-left text-xs text-slate-500">
+              <th className="px-4 py-3 font-medium">Colaborador</th>
+              <th className="px-4 py-3 font-medium">Área / Rol</th>
+              <th className="px-4 py-3 font-medium">Casillero</th>
+              <th className="px-4 py-3 font-medium text-center">A</th>
+              <th className="px-4 py-3 font-medium text-center">F</th>
+              <th className="px-4 py-3 font-medium text-center">L</th>
+              <th className="px-4 py-3 font-medium text-center">V</th>
+              <th className="px-4 py-3 font-medium">Obs.</th>
+              {modoJefe && <th className="px-4 py-3 font-medium text-center">Turnos</th>}
+            </tr>
+          </thead>
+          <tbody>
+            {visibles.map(c => {
+              const actual = estadoLocal[c.id] || {};
+              const obsCount = registros.filter(r => r.colabId === c.id && r.clave !== claveTurno && r.obs && r.obs.trim()).length;
+              const abierta = filaAbierta === c.id;
+              return (
+                <Fragment key={c.id}>
+                  <tr className="border-b border-slate-100 hover:bg-slate-50/60">
+                    <td className="px-4 py-3">
+                      <div className="flex items-center gap-2.5">
+                        <div className="w-8 h-8 rounded-full bg-indigo-100 text-indigo-700 flex items-center justify-center text-[11px] font-semibold shrink-0">
+                          {iniciales(nombreCompleto(c))}
+                        </div>
+                        <div className="min-w-0">
+                          <p className="font-medium text-slate-900 leading-tight">{nombreCompleto(c)}</p>
+                          {c.rut && <p className="text-[11px] text-slate-400 leading-tight">{c.rut}</p>}
+                        </div>
+                      </div>
+                    </td>
+                    <td className="px-4 py-3 text-slate-500">{c.area} · {c.rol}</td>
+                    <td className="px-4 py-3 text-slate-500">{c.casillero}</td>
+                    {ESTADOS_ASIST.map(e => (
+                      <td key={e.key} className="px-4 py-3 text-center">
+                        <button
+                          onClick={() => setEstado(c.id, e.key)}
+                          className={`w-8 h-8 rounded-lg inline-flex items-center justify-center border transition
+                            ${actual.estado === e.key ? `${e.bg} text-white border-transparent` : `${e.light} ${e.texto} border-transparent opacity-60 hover:opacity-100`}`}
+                          title={e.label}
+                        >
+                          <e.Icon size={15} />
+                        </button>
+                      </td>
+                    ))}
+                    <td className="px-4 py-3">
+                      <button onClick={() => setFilaAbierta(abierta ? null : c.id)} className="text-slate-400 hover:text-slate-600 flex items-center gap-1 text-xs">
+                        {actual.obs ? "Ver nota" : "Agregar"}
+                        <span className={`text-[10px] rounded-full px-1.5 ${obsCount >= 3 ? "bg-amber-100 text-amber-700" : "bg-slate-100 text-slate-400"}`}>{obsCount}/3</span>
+                        {abierta ? <ChevronDown size={13} /> : <ChevronRight size={13} />}
+                      </button>
+                    </td>
+                    {modoJefe && (
+                      <td className="px-4 py-3 text-center">
+                        <button onClick={() => onIrHistorialPersona(c)} className="p-1.5 rounded-lg hover:bg-slate-100" title="Historial de turnos">
+                          <HistoryIcon size={16} className="text-slate-400" />
+                        </button>
+                      </td>
+                    )}
+                  </tr>
+                  {abierta && (
+                    <tr className="border-b border-slate-100 bg-slate-50/40">
+                      <td colSpan={modoJefe ? 9 : 8} className="px-4 py-3">
+                        {obsCount >= 3 && !actual.obs && (
+                          <p className="text-xs text-amber-600 mb-1.5">Esta persona ya tiene 3 observaciones guardadas. Si agregas una nueva, se eliminará la más antigua.</p>
+                        )}
+                        <textarea
+                          value={actual.obs || ""}
+                          onChange={ev => setObs(c.id, ev.target.value)}
+                          placeholder="Observación (opcional)"
+                          rows={2}
+                          className={inputBase + " max-w-lg"}
+                        />
+                      </td>
+                    </tr>
+                  )}
+                </Fragment>
+              );
+            })}
+            {visibles.length === 0 && (
+              <tr><td colSpan={modoJefe ? 9 : 8} className="px-4 py-10 text-center text-slate-400">No hay colaboradores en este turno/área.</td></tr>
+            )}
+          </tbody>
+        </table>
+      </Card>
+    </div>
+  );
+}
+
+// ---------------------------------------------------------------------------
+// PANEL: HISTORIAL DE CAMBIOS DE TURNO
+// ---------------------------------------------------------------------------
+function PanelHistorialTurno({ colaborador, colaboradores, saveColaboradores, historial, saveHistorial, onToast, onClose }) {
+  const [turnoNuevo, setTurnoNuevo] = useState(colaborador.turnoActual);
+  const [motivo, setMotivo] = useState("");
+  const [guardando, setGuardando] = useState(false);
+
+  const historialPersona = useMemo(
+    () => historial.filter(h => h.colabId === colaborador.id).sort((a, b) => b.fecha.localeCompare(a.fecha)),
+    [historial, colaborador.id]
+  );
+
+  async function registrarCambio() {
+    if (turnoNuevo === colaborador.turnoActual) { onToast("Selecciona un turno distinto al actual", "error"); return; }
+    if (motivo.trim().length === 0) { onToast("Agrega una observación para el cambio de turno", "error"); return; }
+    setGuardando(true);
+    const nuevoRegistro = {
+      id: Date.now(),
+      colabId: colaborador.id,
+      turnoAnterior: colaborador.turnoActual,
+      turnoNuevo,
+      fecha: today(),
+      motivo: motivo.trim(),
+    };
+    const okHist = await saveHistorial([nuevoRegistro, ...historial]);
+    const nuevosColab = colaboradores.map(c => c.id === colaborador.id ? { ...c, turnoActual: turnoNuevo } : c);
+    const okColab = await saveColaboradores(nuevosColab);
+    setGuardando(false);
+    if (okHist && okColab) {
+      setMotivo("");
+      onToast("Cambio de turno registrado", "ok");
+    } else {
+      onToast("Error al registrar el cambio", "error");
+    }
+  }
+
+  return (
+    <div className="fixed inset-0 z-50 bg-black/40 flex items-center justify-end" onClick={onClose}>
+      <div onClick={e => e.stopPropagation()} className="bg-slate-50 h-screen w-full max-w-md p-6 space-y-5 overflow-y-auto shadow-xl">
+        <div className="flex items-center justify-between">
+          <h2 className="font-semibold text-slate-900">Historial de turnos</h2>
+          <button onClick={onClose} className="p-1.5 rounded-lg hover:bg-slate-200"><XIcon size={18} /></button>
+        </div>
+
+        <Card>
+          <div className="flex items-center gap-3">
+            <div className="w-10 h-10 rounded-full bg-indigo-100 text-indigo-700 flex items-center justify-center text-sm font-semibold">
+              {iniciales(nombreCompleto(colaborador))}
+            </div>
+            <div>
+              <p className="font-medium text-slate-900">{nombreCompleto(colaborador)}</p>
+              <p className="text-xs text-slate-500">{colaborador.rol} · {colaborador.area}</p>
+            </div>
+          </div>
+        </Card>
+
+        <Card className="space-y-3">
+          <p className="text-sm font-medium text-slate-900">Registrar cambio de turno</p>
+          <div className="flex items-center gap-2 text-sm">
+            <TurnoChip turno={colaborador.turnoActual} />
+            <ArrowLeft size={14} className="rotate-180 text-slate-400" />
+            <select value={turnoNuevo} onChange={e => setTurnoNuevo(e.target.value)} className={inputBase + " w-auto"}>
+              {TURNOS.map(t => <option key={t.key} value={t.key}>{t.label}</option>)}
+            </select>
+          </div>
+          <div>
+            <textarea
+              value={motivo}
+              onChange={e => setMotivo(e.target.value)}
+              placeholder="Observación del cambio (obligatoria)"
+              rows={2}
+              className={inputBase}
+            />
+            <p className="text-xs text-slate-400 mt-1">Debes indicar el motivo del cambio de turno.</p>
+          </div>
+          <button
+            onClick={registrarCambio}
+            disabled={guardando}
+            className="w-full rounded-xl bg-slate-900 text-white py-2.5 text-sm font-medium flex items-center justify-center gap-2 disabled:opacity-50 hover:bg-slate-800"
+          >
+            {guardando ? <Loader2 size={16} className="animate-spin" /> : <Check size={16} />}
+            Confirmar cambio
+          </button>
+        </Card>
+
+        <div>
+          <p className="text-sm font-medium text-slate-900 mb-2 px-1">Historial</p>
+          {historialPersona.length === 0 && <p className="text-sm text-slate-400 px-1">Sin cambios registrados.</p>}
+          <div className="space-y-2">
+            {historialPersona.map(h => (
+              <Card key={h.id} className="!p-3">
+                <div className="flex items-center justify-between">
+                  <div className="flex items-center gap-2 text-sm">
+                    <TurnoChip turno={h.turnoAnterior} />
+                    <ArrowLeft size={12} className="rotate-180 text-slate-400" />
+                    <TurnoChip turno={h.turnoNuevo} />
+                  </div>
+                  <span className="text-xs text-slate-400">{fmtFecha(h.fecha)}</span>
+                </div>
+                {h.motivo && <p className="text-xs text-slate-500 mt-1.5">{h.motivo}</p>}
+              </Card>
+            ))}
+          </div>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+// ---------------------------------------------------------------------------
+// PANTALLA: INDICADORES
+// ---------------------------------------------------------------------------
+function PantallaIndicadores({ colaboradores, registros }) {
+  const [periodo, setPeriodo] = useState(30);
+  const [fechaInicioCustom, setFechaInicioCustom] = useState(diasAtras(30));
+  const [fechaFinCustom, setFechaFinCustom] = useState(today());
+
+  const { fechaInicio, fechaFin } = useMemo(() => {
+    if (periodo === "custom") return { fechaInicio: fechaInicioCustom, fechaFin: fechaFinCustom };
+    return { fechaInicio: diasAtras(periodo), fechaFin: today() };
+  }, [periodo, fechaInicioCustom, fechaFinCustom]);
+
+  const registrosPeriodo = useMemo(
+    () => registros.filter(r => r.fecha >= fechaInicio && r.fecha <= fechaFin),
+    [registros, fechaInicio, fechaFin]
+  );
+
+  const ranking = useMemo(() => {
+    return colaboradores
+      .map(c => {
+        const regs = registrosPeriodo.filter(r => r.colabId === c.id);
+        const faltas = regs.filter(r => r.estado === "F").length;
+        const total = regs.length;
+        return { ...c, faltas, total, pct: total ? Math.round((faltas / total) * 100) : 0 };
+      })
+      .filter(c => c.faltas > 0)
+      .sort((a, b) => b.faltas - a.faltas || b.pct - a.pct);
+  }, [colaboradores, registrosPeriodo]);
+
+  const statsPersona = useMemo(() => {
+    return colaboradores.map(c => {
+      const regs = registrosPeriodo.filter(r => r.colabId === c.id);
+      return {
+        ...c,
+        faltas: regs.filter(r => r.estado === "F").length,
+        licencias: regs.filter(r => r.estado === "L").length,
+        observaciones: regs.filter(r => r.obs && r.obs.trim()).length,
+      };
+    });
+  }, [colaboradores, registrosPeriodo]);
+
+  const top5Faltas = useMemo(
+    () => [...statsPersona].filter(c => c.faltas > 0).sort((a, b) => b.faltas - a.faltas).slice(0, 5),
+    [statsPersona]
+  );
+  const top5Licencias = useMemo(
+    () => [...statsPersona].filter(c => c.licencias > 0).sort((a, b) => b.licencias - a.licencias).slice(0, 5),
+    [statsPersona]
+  );
+  const top5Observaciones = useMemo(
+    () => [...statsPersona].filter(c => c.observaciones > 0).sort((a, b) => b.observaciones - a.observaciones).slice(0, 5),
+    [statsPersona]
+  );
+
+  // Conteo A/F/L/V para un conjunto de registros
+  function contar(regs) {
+    const c = { A: 0, F: 0, L: 0, V: 0 };
+    regs.forEach(r => { if (c[r.estado] !== undefined) c[r.estado]++; });
+    const total = regs.length;
+    const pctFalta = total ? Math.round((c.F / total) * 100) : 0;
+    return { ...c, total, pctFalta };
+  }
+
+  const porArea = useMemo(() => {
+    return AREAS.map(area => {
+      const regsArea = registrosPeriodo.filter(r => {
+        const c = colaboradores.find(c => c.id === r.colabId);
+        return c?.area === area;
+      });
+      return { area, ...contar(regsArea) };
+    });
+  }, [colaboradores, registrosPeriodo]);
+
+  const porTurno = useMemo(() => {
+    return TURNOS.map(t => {
+      const regsTurno = registrosPeriodo.filter(r => r.turno === t.key);
+      return { turno: t, ...contar(regsTurno) };
+    });
+  }, [registrosPeriodo]);
+
+  function TablaResumen({ titulo, IconComp, filas, colLabel }) {
+    return (
+      <Card className="!p-0 overflow-hidden">
+        <p className="text-sm font-medium text-slate-900 flex items-center gap-2 px-5 pt-5 pb-3"><IconComp size={16} /> {titulo}</p>
+        <table className="w-full text-sm">
+          <thead>
+            <tr className="bg-slate-50 border-y border-slate-200 text-left text-xs text-slate-500">
+              <th className="px-5 py-2.5 font-medium">{colLabel}</th>
+              <th className="px-3 py-2.5 font-medium text-center text-emerald-600">Presente</th>
+              <th className="px-3 py-2.5 font-medium text-center text-red-600">Ausente</th>
+              <th className="px-3 py-2.5 font-medium text-center text-blue-600">Licencia</th>
+              <th className="px-3 py-2.5 font-medium text-center text-amber-600">Vacaciones</th>
+              <th className="px-5 py-2.5 font-medium text-right">% Falta</th>
+            </tr>
+          </thead>
+          <tbody>
+            {filas.map((f, i) => (
+              <tr key={i} className="border-b border-slate-100 last:border-0">
+                <td className="px-5 py-2.5 font-medium text-slate-900">{f.label}</td>
+                <td className="px-3 py-2.5 text-center text-slate-600">{f.A}</td>
+                <td className="px-3 py-2.5 text-center text-slate-600">{f.F}</td>
+                <td className="px-3 py-2.5 text-center text-slate-600">{f.L}</td>
+                <td className="px-3 py-2.5 text-center text-slate-600">{f.V}</td>
+                <td className="px-5 py-2.5 text-right">
+                  <span className={`text-xs font-semibold rounded-full px-2 py-0.5 ${f.pctFalta >= 15 ? "bg-red-100 text-red-700" : "bg-slate-100 text-slate-500"}`}>
+                    {f.pctFalta}%
+                  </span>
+                </td>
+              </tr>
+            ))}
+          </tbody>
+        </table>
+      </Card>
+    );
+  }
+
+  return (
+    <div className="space-y-5">
+      <Card className="flex flex-wrap items-center gap-4 justify-between">
+        <div className="flex items-center gap-2">
+          <CalendarDays size={16} className="text-slate-400" />
+          <span className="text-sm font-medium text-slate-900">Período:</span>
+          <div className="flex gap-1.5 flex-wrap">
+            {PERIODOS.map(p => (
+              <button
+                key={p.key}
+                onClick={() => setPeriodo(p.key)}
+                className={`text-xs font-medium rounded-full px-3 py-1.5 border
+                  ${periodo === p.key ? "bg-indigo-600 text-white border-indigo-600" : "bg-white text-slate-600 border-slate-200 hover:bg-slate-50"}`}
+              >
+                {p.label}
+              </button>
+            ))}
+          </div>
+        </div>
+        {periodo === "custom" ? (
+          <div className="flex gap-2 items-center text-sm">
+            <input type="date" value={fechaInicioCustom} onChange={e => setFechaInicioCustom(e.target.value)} className={inputBase} />
+            <span className="text-slate-400">–</span>
+            <input type="date" value={fechaFinCustom} onChange={e => setFechaFinCustom(e.target.value)} className={inputBase} />
+          </div>
+        ) : (
+          <p className="text-xs text-slate-400">{fmtFecha(fechaInicio)} — {fmtFecha(fechaFin)}</p>
+        )}
+      </Card>
+
+      <TablaResumen
+        titulo="Presente / Ausente / Licencia / Vacaciones por área"
+        IconComp={BarChart3}
+        colLabel="Área"
+        filas={porArea.map(a => ({ label: a.area, ...a }))}
+      />
+
+      <TablaResumen
+        titulo="Presente / Ausente / Licencia / Vacaciones por turno"
+        IconComp={Clock}
+        colLabel="Turno"
+        filas={porTurno.map(t => ({ label: t.turno.label, ...t }))}
+      />
+
+      <div className="grid grid-cols-2 gap-5">
+        <Card>
+          <p className="text-sm font-medium text-slate-900 flex items-center gap-2 mb-4"><BarChart3 size={16} /> Faltas por área</p>
+          <div className="space-y-4">
+            {porArea.map(a => (
+              <div key={a.area}>
+                <div className="flex justify-between text-xs text-slate-600 mb-1">
+                  <span>{a.area}</span>
+                  <span>{a.F} faltas · {a.pctFalta}%</span>
+                </div>
+                <div className="h-2 rounded-full bg-slate-100 overflow-hidden">
+                  <div className="h-full bg-red-400" style={{ width: `${a.pctFalta}%` }} />
+                </div>
+              </div>
+            ))}
+          </div>
+        </Card>
+
+        <Card>
+          <p className="text-sm font-medium text-slate-900 flex items-center gap-2 mb-4"><Clock size={16} /> Faltas por turno</p>
+          <div className="space-y-4">
+            {porTurno.map(t => (
+              <div key={t.turno.key}>
+                <div className="flex justify-between text-xs text-slate-600 mb-1">
+                  <span>{t.turno.label}</span>
+                  <span>{t.F} faltas · {t.pctFalta}%</span>
+                </div>
+                <div className="h-2 rounded-full bg-slate-100 overflow-hidden">
+                  <div className="h-full bg-red-400" style={{ width: `${t.pctFalta}%` }} />
+                </div>
+              </div>
+            ))}
+          </div>
+        </Card>
+      </div>
+
+      <Card>
+        <p className="text-sm font-medium text-slate-900 mb-4">Top 5 por persona</p>
+        <div className="grid grid-cols-3 gap-5">
+          {[
+            { titulo: "Más faltas", campo: "faltas", data: top5Faltas, color: "text-red-600", bg: "bg-red-100", etiqueta: "faltas" },
+            { titulo: "Más licencias", campo: "licencias", data: top5Licencias, color: "text-blue-600", bg: "bg-blue-100", etiqueta: "licencias" },
+            { titulo: "Más observaciones", campo: "observaciones", data: top5Observaciones, color: "text-amber-600", bg: "bg-amber-100", etiqueta: "notas" },
+          ].map(col => (
+            <div key={col.titulo}>
+              <p className="text-xs font-medium text-slate-500 mb-3">{col.titulo}</p>
+              {col.data.length === 0 && <p className="text-xs text-slate-400">Sin datos en el período.</p>}
+              <div className="space-y-2.5">
+                {col.data.map((c, i) => (
+                  <div key={c.id} className="flex items-center gap-2.5">
+                    <span className="text-xs font-semibold text-slate-400 w-3 shrink-0">{i + 1}</span>
+                    <div className="w-7 h-7 rounded-full bg-indigo-100 text-indigo-700 flex items-center justify-center text-[10px] font-semibold shrink-0">
+                      {iniciales(nombreCompleto(c))}
+                    </div>
+                    <div className="min-w-0 flex-1">
+                      <p className="text-xs font-medium text-slate-900 truncate">{nombreCompleto(c)}</p>
+                      <p className="text-[10px] text-slate-400 truncate">{c.area}</p>
+                    </div>
+                    <span className={`text-[11px] font-semibold rounded-full px-2 py-0.5 shrink-0 ${col.bg} ${col.color}`}>
+                      {c[col.campo]} {col.etiqueta}
+                    </span>
+                  </div>
+                ))}
+              </div>
+            </div>
+          ))}
+        </div>
+      </Card>
+
+      <Card>
+        <p className="text-sm font-medium text-slate-900 flex items-center gap-2 mb-4"><TrendingDown size={16} /> Ranking de faltas</p>
+        {ranking.length === 0 && <p className="text-sm text-slate-400 py-4 text-center">Sin faltas registradas en el período.</p>}
+        <div className="space-y-2 max-h-80 overflow-y-auto pr-1">
+          {ranking.map((c, i) => (
+            <div key={c.id} className="flex items-center gap-3 py-1.5">
+              <span className="text-xs font-semibold text-slate-400 w-4 shrink-0">{i + 1}</span>
+              <div className="w-8 h-8 rounded-full bg-indigo-100 text-indigo-700 flex items-center justify-center text-[11px] font-semibold shrink-0">
+                {iniciales(nombreCompleto(c))}
+              </div>
+              <div className="min-w-0 flex-1">
+                <p className="text-sm text-slate-900 truncate">{nombreCompleto(c)}</p>
+                <p className="text-xs text-slate-500">{c.area}</p>
+              </div>
+              <span className="text-xs font-semibold text-red-600 shrink-0">{c.faltas} faltas</span>
+              <span className="text-xs text-slate-400 shrink-0 w-10 text-right">{c.pct}%</span>
+            </div>
+          ))}
+        </div>
+      </Card>
+    </div>
+  );
+}
+
+function ModalComentarioEstado({ colaborador, estadoNuevo, onClose, onConfirm }) {
+  const [comentario, setComentario] = useState("");
+  const [guardando, setGuardando] = useState(false);
+  const opcion = OPCIONES_JEFE.find(o => o.key === estadoNuevo);
+
+  async function confirmar() {
+    if (comentario.trim().length === 0) return;
+    setGuardando(true);
+    await onConfirm(comentario.trim());
+    setGuardando(false);
+  }
+
+  return (
+    <div className="fixed inset-0 z-50 bg-black/40 flex items-center justify-center p-4" onClick={onClose}>
+      <div onClick={e => e.stopPropagation()} className="bg-white rounded-2xl w-full max-w-sm p-6 space-y-4 shadow-xl">
+        <div className="flex items-center justify-between">
+          <h2 className="font-semibold text-slate-900">Cambiar estado laboral</h2>
+          <button onClick={onClose} className="p-1 rounded-lg hover:bg-slate-100"><XIcon size={18} /></button>
+        </div>
+        <div className="flex items-center gap-2 text-sm">
+          <span className="text-slate-500">{nombreCompleto(colaborador)}</span>
+          <ArrowLeft size={14} className="rotate-180 text-slate-400" />
+          <span className={`text-xs rounded-full px-2 py-0.5 font-medium ${opcion?.light}`}>{opcion?.label}</span>
+        </div>
+        <div>
+          <textarea
+            autoFocus
+            value={comentario}
+            onChange={e => setComentario(e.target.value)}
+            placeholder="Comentario del cambio (obligatorio)"
+            rows={3}
+            className={inputBase}
+          />
+          <p className="text-xs text-slate-400 mt-1">Este comentario quedará en el historial de la persona.</p>
+        </div>
+        <button
+          onClick={confirmar}
+          disabled={guardando || comentario.trim().length === 0}
+          className="w-full rounded-xl bg-slate-900 text-white py-2.5 text-sm font-medium disabled:opacity-50 hover:bg-slate-800 flex items-center justify-center gap-2"
+        >
+          {guardando ? <Loader2 size={16} className="animate-spin" /> : <Check size={16} />}
+          Confirmar cambio
+        </button>
+      </div>
+    </div>
+  );
+}
+
+// ---------------------------------------------------------------------------
+// PANTALLA: ESTADO LABORAL
+// ---------------------------------------------------------------------------
+function PantallaEstadoLaboral({ colaboradores, saveColaboradores, historialEstado, saveHistorialEstado, notas, saveNotas, onToast, onIrHistorialPersona }) {
+  const [filtro, setFiltro] = useState("Todos");
+  const [busqueda, setBusqueda] = useState("");
+  const [editandoCasillero, setEditandoCasillero] = useState(null);
+  const [casilleroTmp, setCasilleroTmp] = useState("");
+  const [editandoRol, setEditandoRol] = useState(null);
+  const [editandoArea, setEditandoArea] = useState(null);
+  const [pendingCambio, setPendingCambio] = useState(null); // { colaborador, estadoNuevo }
+  const [importando, setImportando] = useState(false);
+  const [actualizarExistentes, setActualizarExistentes] = useState(false);
+  const fileInputRef = useRef(null);
+
+  const lista = useMemo(() => {
+    const q = busqueda.trim().toLowerCase();
+    return colaboradores
+      .filter(c => filtro === "Todos" || c.estadoJefe === filtro)
+      .filter(c => !q || nombreCompleto(c).toLowerCase().includes(q) || (c.rut && c.rut.toLowerCase().includes(q)))
+      .sort((a, b) => nombreCompleto(a).localeCompare(nombreCompleto(b)));
+  }, [colaboradores, filtro, busqueda]);
+
+  async function confirmarCambioEstado(comentario) {
+    const { colaborador, estadoNuevo } = pendingCambio;
+    const nuevos = colaboradores.map(c => c.id === colaborador.id ? { ...c, estadoJefe: estadoNuevo } : c);
+    const okColab = await saveColaboradores(nuevos);
+    const registro = {
+      id: Date.now(),
+      colabId: colaborador.id,
+      estadoAnterior: colaborador.estadoJefe,
+      estadoNuevo,
+      fecha: today(),
+      comentario,
+    };
+    const okHist = await saveHistorialEstado([registro, ...historialEstado]);
+
+    if (okColab && okHist) {
+      const opcionNueva = OPCIONES_JEFE.find(o => o.key === estadoNuevo);
+      const seOculta = filtro !== "Todos" && filtro !== estadoNuevo;
+      onToast(
+        seOculta
+          ? `${nombreCompleto(colaborador)} pasó a "${opcionNueva?.label}" — ya no aparece porque el filtro actual es distinto. Cambia a "Todos" para verlo.`
+          : `Estado actualizado a "${opcionNueva?.label}"`,
+        "ok"
+      );
+    } else {
+      onToast("Error al actualizar", "error");
+    }
+    setPendingCambio(null);
+  }
+
+  async function guardarCasillero(id) {
+    const nuevos = colaboradores.map(c => c.id === id ? { ...c, casillero: casilleroTmp } : c);
+    await saveColaboradores(nuevos);
+    setEditandoCasillero(null);
+  }
+
+  async function guardarRol(id, rol) {
+    const nuevos = colaboradores.map(c => c.id === id ? { ...c, rol } : c);
+    await saveColaboradores(nuevos);
+    setEditandoRol(null);
+  }
+
+  async function guardarArea(id, area) {
+    const nuevos = colaboradores.map(c => c.id === id ? { ...c, area } : c);
+    await saveColaboradores(nuevos);
+    setEditandoArea(null);
+  }
+
+  const RUTS_MUESTRA = new Set(COLABORADORES_DEFAULT.map(c => c.rut));
+  const cantidadMuestra = colaboradores.filter(c => RUTS_MUESTRA.has(c.rut)).length;
+
+  async function quitarColaboradoresMuestra() {
+    const nuevos = colaboradores.filter(c => !RUTS_MUESTRA.has(c.rut));
+    const ok = await saveColaboradores(nuevos);
+    onToast(ok ? `Se quitaron ${cantidadMuestra} colaborador(es) de muestra` : "Error al quitar los colaboradores de muestra", ok ? "ok" : "error");
+  }
+
+  function descargarPlantilla() {
+    const contenido = "rut,nombre,apellido_paterno,apellido_materno,area,rol,turno,casillero,estado_laboral,recomendacion_bd_dotacion\n11222333-4,Juan,Pérez,Soto,Selección,Operario de Packing,T1,C-11,activo,\n22333444-5,María,López,Díaz,Lavado,Movilizador,T2,C-12,desvinculado_temporada,Volver A Llamar\n";
+    const blob = new Blob([contenido], { type: "text/csv;charset=utf-8;" });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement("a");
+    a.href = url;
+    a.download = "plantilla_colaboradores.csv";
+    a.click();
+    URL.revokeObjectURL(url);
+  }
+
+  function handleArchivoSeleccionado(e) {
+    const archivo = e.target.files?.[0];
+    if (!archivo) return;
+    setImportando(true);
+    const reader = new FileReader();
+    reader.onload = async (ev) => {
+      try {
+        const filas = parseCSV(String(ev.target.result));
+        const colabPorRut = new Map(
+          colaboradores.filter(c => c.rut).map(c => [normalizarRut(c.rut), c])
+        );
+        const existentesNombres = new Set(colaboradores.map(c => nombreCompleto(c).trim().toLowerCase()));
+        let siguienteId = colaboradores.reduce((max, c) => Math.max(max, c.id), 0) + 1;
+
+        let colaboradoresFinal = [...colaboradores];
+        const nuevasNotas = [];
+        let agregados = 0, actualizados = 0, omitidos = 0;
+
+        filas.forEach(fila => {
+          const nombre = fila.nombre || fila.name || "";
+          if (!nombre) return;
+          const apellidoPaterno = fila.apellido_paterno || fila["apellido paterno"] || fila.appaterno || "";
+          const apellidoMaterno = fila.apellido_materno || fila["apellido materno"] || fila.apmaterno || "";
+          const rut = normalizarRut(fila.rut || fila.run || "");
+          const nombreCompletoFila = [nombre, apellidoPaterno, apellidoMaterno].filter(Boolean).join(" ");
+
+          const turnoRaw = (fila.turno || fila.turnoactual || "T1").toUpperCase();
+          const turnoActual = TURNOS.some(t => t.key === turnoRaw) ? turnoRaw : "T1";
+          const areaRaw = fila.area || AREAS[0];
+          const area = AREAS.find(a => a.toLowerCase() === areaRaw.toLowerCase()) || areaRaw;
+          const rol = normalizarRolImportado(fila.rol || fila.role || fila.cargo);
+          const estadoJefe = normalizarEstadoLaboralImportado(fila.estadolaboral || fila["estado laboral"] || fila.estado_laboral);
+          const casillero = fila.casillero || "";
+          const recomendacion = fila.recomendacion_bd_dotacion || fila["recomendacion bd dotacion"] || fila.recomendacion || "";
+
+          const existente = rut ? colabPorRut.get(rut) : null;
+
+          if (existente) {
+            // Ya existe ese RUT.
+            if (!actualizarExistentes) { omitidos++; return; }
+            colaboradoresFinal = colaboradoresFinal.map(c =>
+              c.id === existente.id ? { ...c, nombre, apellidoPaterno, apellidoMaterno, area, rol, turnoActual, estadoJefe, casillero, rut } : c
+            );
+            actualizados++;
+
+            if (recomendacion.trim()) {
+              const textoNota = `Recomendación histórica (BD Dotación): ${recomendacion.trim()}`;
+              const yaExiste = notas.some(n => n.colabId === existente.id && n.nota === textoNota);
+              if (!yaExiste) {
+                nuevasNotas.push({ id: Date.now() + existente.id, colabId: existente.id, fecha: today(), nota: textoNota });
+              }
+            }
+            return;
+          }
+
+          // No existe por RUT: revisar duplicado por nombre completo solo si no viene RUT.
+          if (!rut && existentesNombres.has(nombreCompletoFila.trim().toLowerCase())) { omitidos++; return; }
+
+          const nuevoId = siguienteId++;
+          const nuevoColaborador = { id: nuevoId, rut, nombre, apellidoPaterno, apellidoMaterno, area, rol, turnoActual, estadoJefe, casillero };
+          colaboradoresFinal = [...colaboradoresFinal, nuevoColaborador];
+          agregados++;
+
+          if (recomendacion.trim()) {
+            nuevasNotas.push({
+              id: Date.now() + nuevoId,
+              colabId: nuevoId,
+              fecha: today(),
+              nota: `Recomendación histórica (BD Dotación): ${recomendacion.trim()}`,
+            });
+          }
+
+          if (rut) colabPorRut.set(rut, nuevoColaborador);
+          existentesNombres.add(nombreCompletoFila.trim().toLowerCase());
+        });
+
+        if (agregados === 0 && actualizados === 0) {
+          onToast(omitidos > 0 ? `No se importó nada: ${omitidos} ya existían (activa "Actualizar existentes" para sobrescribirlos)` : "El archivo no tiene filas válidas", "error");
+        } else {
+          const ok = await saveColaboradores(colaboradoresFinal);
+          if (nuevasNotas.length > 0) await saveNotas([...notas, ...nuevasNotas]);
+          const partes = [];
+          if (agregados > 0) partes.push(`${agregados} agregado(s)`);
+          if (actualizados > 0) partes.push(`${actualizados} actualizado(s)`);
+          if (omitidos > 0) partes.push(`${omitidos} omitido(s) por duplicado`);
+          onToast(ok ? partes.join(", ") : "Error al guardar los colaboradores importados", ok ? "ok" : "error");
+        }
+      } catch (err) {
+        onToast("No se pudo leer el archivo. Verifica que sea un CSV válido.", "error");
+      }
+      setImportando(false);
+      if (fileInputRef.current) fileInputRef.current.value = "";
+    };
+    reader.readAsText(archivo, "UTF-8");
+  }
+
+  return (
+    <div className="space-y-4">
+      {cantidadMuestra > 0 && (
+        <Card className="flex flex-wrap items-center justify-between gap-3 border-amber-200 bg-amber-50">
+          <div>
+            <p className="text-sm font-medium text-amber-900">Colaboradores de muestra detectados</p>
+            <p className="text-xs text-amber-700 mt-0.5">
+              Quedan {cantidadMuestra} colaborador(es) de ejemplo (Carlos Muñoz, Ana Torres, etc.) cargados por defecto. Puedes quitarlos ahora que ya importaste el personal real.
+            </p>
+          </div>
+          <button
+            onClick={quitarColaboradoresMuestra}
+            className="rounded-xl bg-amber-600 hover:bg-amber-700 text-white px-3.5 py-2 text-xs font-medium shrink-0"
+          >
+            Quitar colaboradores de muestra
+          </button>
+        </Card>
+      )}
+
+      <Card className="space-y-3">
+        <div className="flex flex-wrap items-center justify-between gap-3">
+          <div>
+            <p className="text-sm font-medium text-slate-900">Importar colaboradores</p>
+            <p className="text-xs text-slate-500 mt-0.5">Columnas: rut, nombre, apellido_paterno, apellido_materno, area, rol, turno, casillero, estado_laboral, recomendacion_bd_dotacion (opcional).</p>
+          </div>
+          <div className="flex gap-2 shrink-0">
+            <button onClick={descargarPlantilla} className="rounded-xl border border-slate-200 bg-white px-3.5 py-2 text-xs font-medium text-slate-600 hover:bg-slate-50">
+              Descargar plantilla
+            </button>
+            <button
+              onClick={() => fileInputRef.current?.click()}
+              disabled={importando}
+              className="rounded-xl bg-indigo-600 disabled:opacity-50 text-white px-3.5 py-2 text-xs font-medium hover:bg-indigo-700 flex items-center gap-1.5"
+            >
+              {importando ? <Loader2 size={14} className="animate-spin" /> : <Plus size={14} />}
+              Importar CSV
+            </button>
+            <input ref={fileInputRef} type="file" accept=".csv,text/csv" onChange={handleArchivoSeleccionado} className="hidden" />
+          </div>
+        </div>
+        <label className="flex items-center gap-2 text-xs text-slate-600 cursor-pointer w-fit">
+          <input
+            type="checkbox"
+            checked={actualizarExistentes}
+            onChange={e => setActualizarExistentes(e.target.checked)}
+            className="rounded border-slate-300"
+          />
+          Actualizar existentes si el RUT ya está cargado (en vez de omitirlos)
+        </label>
+      </Card>
+
+      <input
+        value={busqueda}
+        onChange={e => setBusqueda(e.target.value)}
+        placeholder="Buscar por RUT o nombre..."
+        className={inputBase + " max-w-sm"}
+      />
+
+      <div className="flex gap-1.5 flex-wrap">
+        {["Todos", ...OPCIONES_JEFE.map(o => o.key)].map(f => {
+          const opt = OPCIONES_JEFE.find(o => o.key === f);
+          return (
+            <button
+              key={f}
+              onClick={() => setFiltro(f)}
+              className={`rounded-full px-3 py-1.5 text-xs font-medium border
+                ${filtro === f ? "bg-slate-900 text-white border-slate-900" : "bg-white text-slate-600 border-slate-200 hover:bg-slate-50"}`}
+            >
+              {f === "Todos" ? "Todos" : opt.label}
+            </button>
+          );
+        })}
+      </div>
+
+      <Card className="!p-0 overflow-hidden">
+        <table className="w-full text-sm">
+          <thead>
+            <tr className="bg-slate-50 border-b border-slate-200 text-left text-xs text-slate-500">
+              <th className="px-4 py-3 font-medium">Colaborador</th>
+              <th className="px-4 py-3 font-medium">Área</th>
+              <th className="px-4 py-3 font-medium">Cargo</th>
+              <th className="px-4 py-3 font-medium">Turno</th>
+              <th className="px-4 py-3 font-medium">Casillero</th>
+              <th className="px-4 py-3 font-medium">Estado laboral</th>
+            </tr>
+          </thead>
+          <tbody>
+            {lista.map(c => (
+              <tr key={c.id} className="border-b border-slate-100 hover:bg-slate-50/60">
+                <td className="px-4 py-3">
+                  <div className="flex items-center gap-2.5">
+                    <div className="w-8 h-8 rounded-full bg-indigo-100 text-indigo-700 flex items-center justify-center text-[11px] font-semibold shrink-0">
+                      {iniciales(nombreCompleto(c))}
+                    </div>
+                    <div>
+                      <p className="font-medium text-slate-900">{nombreCompleto(c)}</p>
+                      <p className="text-xs text-slate-500">{c.rut || "—"}</p>
+                    </div>
+                  </div>
+                </td>
+                <td className="px-4 py-3">
+                  {editandoArea === c.id ? (
+                    <select
+                      autoFocus
+                      value={c.area}
+                      onChange={e => guardarArea(c.id, e.target.value)}
+                      onBlur={() => setEditandoArea(null)}
+                      className="text-xs rounded-lg border border-slate-200 px-2 py-1.5"
+                    >
+                      {!AREAS.includes(c.area) && <option value={c.area}>{c.area}</option>}
+                      {AREAS.map(a => <option key={a} value={a}>{a}</option>)}
+                    </select>
+                  ) : (
+                    <button onClick={() => setEditandoArea(c.id)} className="flex items-center gap-1 text-xs text-slate-600 hover:text-slate-900">
+                      {c.area || "—"} <Pencil size={11} className="text-slate-400" />
+                    </button>
+                  )}
+                </td>
+                <td className="px-4 py-3">
+                  {editandoRol === c.id ? (
+                    <select
+                      autoFocus
+                      value={c.rol}
+                      onChange={e => guardarRol(c.id, e.target.value)}
+                      onBlur={() => setEditandoRol(null)}
+                      className="text-xs rounded-lg border border-slate-200 px-2 py-1.5"
+                    >
+                      {!ROLES.includes(c.rol) && <option value={c.rol}>{c.rol}</option>}
+                      {ROLES.map(r => <option key={r} value={r}>{r}</option>)}
+                    </select>
+                  ) : (
+                    <button onClick={() => setEditandoRol(c.id)} className="flex items-center gap-1 text-xs text-slate-600 hover:text-slate-900">
+                      {c.rol || "—"} <Pencil size={11} className="text-slate-400" />
+                    </button>
+                  )}
+                </td>
+                <td className="px-4 py-3">
+                  <button
+                    onClick={() => onIrHistorialPersona(c)}
+                    className="flex items-center gap-1.5 hover:opacity-75"
+                    title="Cambiar turno / ver historial"
+                  >
+                    <TurnoChip turno={c.turnoActual} />
+                    <HistoryIcon size={13} className="text-slate-400" />
+                  </button>
+                </td>
+                <td className="px-4 py-3">
+                  {editandoCasillero === c.id ? (
+                    <div className="flex items-center gap-1">
+                      <input
+                        autoFocus
+                        value={casilleroTmp}
+                        onChange={e => setCasilleroTmp(e.target.value)}
+                        className="w-16 text-xs rounded-lg border border-slate-200 px-2 py-1"
+                      />
+                      <button onClick={() => guardarCasillero(c.id)} className="p-1 rounded-lg bg-emerald-100 text-emerald-700"><Check size={14} /></button>
+                    </div>
+                  ) : (
+                    <button
+                      onClick={() => { setEditandoCasillero(c.id); setCasilleroTmp(c.casillero || ""); }}
+                      className="flex items-center gap-1 text-xs text-slate-500 hover:text-slate-700"
+                    >
+                      {c.casillero || "—"} <Pencil size={12} />
+                    </button>
+                  )}
+                </td>
+                <td className="px-4 py-3">
+                  <div className="flex gap-1.5 flex-wrap">
+                    {OPCIONES_JEFE.map(o => {
+                      const activo = c.estadoJefe === o.key;
+                      return (
+                        <button
+                          key={o.key}
+                          onClick={() => !activo && setPendingCambio({ colaborador: c, estadoNuevo: o.key })}
+                          className={`rounded-lg px-2.5 py-1.5 text-[11px] font-medium border transition
+                            ${activo ? `${o.bg} text-white border-transparent` : `${o.light} hover:opacity-80`}`}
+                        >
+                          {o.label}
+                        </button>
+                      );
+                    })}
+                  </div>
+                </td>
+              </tr>
+            ))}
+            {lista.length === 0 && (
+              <tr><td colSpan={6} className="px-4 py-10 text-center text-slate-400">No hay colaboradores en este estado.</td></tr>
+            )}
+          </tbody>
+        </table>
+      </Card>
+
+      {pendingCambio && (
+        <ModalComentarioEstado
+          colaborador={pendingCambio.colaborador}
+          estadoNuevo={pendingCambio.estadoNuevo}
+          onClose={() => setPendingCambio(null)}
+          onConfirm={confirmarCambioEstado}
+        />
+      )}
+    </div>
+  );
+}
+
+// ---------------------------------------------------------------------------
+// PANTALLA: HISTORIAL POR PERSONA (solo modo jefe)
+// ---------------------------------------------------------------------------
+function PantallaHistorialPorPersona({ colaboradores, registros, historialTurnos, historialEstado, notas }) {
+  const [busqueda, setBusqueda] = useState("");
+  const [seleccionadoId, setSeleccionadoId] = useState(colaboradores[0]?.id ?? null);
+
+  const listaFiltrada = useMemo(() => {
+    return colaboradores
+      .filter(c => {
+        const q = busqueda.toLowerCase();
+        return nombreCompleto(c).toLowerCase().includes(q) || (c.rut && c.rut.toLowerCase().includes(q));
+      })
+      .sort((a, b) => nombreCompleto(a).localeCompare(nombreCompleto(b)));
+  }, [colaboradores, busqueda]);
+
+  const seleccionado = colaboradores.find(c => c.id === seleccionadoId) || null;
+
+  const timeline = useMemo(() => {
+    if (!seleccionado) return [];
+    const eventos = [];
+
+    registros.filter(r => r.colabId === seleccionado.id).forEach(r => {
+      const e = ESTADO_MAP[r.estado];
+      eventos.push({
+        tipo: "asistencia",
+        fecha: r.fecha,
+        orden: 1,
+        icon: e?.Icon || CheckCircle2,
+        color: e?.texto || "text-slate-600",
+        bg: e?.light || "bg-slate-100",
+        titulo: `${e?.label || r.estado} · ${r.turno}`,
+        detalle: r.obs || null,
+      });
+    });
+
+    historialTurnos.filter(h => h.colabId === seleccionado.id).forEach(h => {
+      eventos.push({
+        tipo: "turno",
+        fecha: h.fecha,
+        orden: 2,
+        icon: HistoryIcon,
+        color: "text-indigo-600",
+        bg: "bg-indigo-100",
+        titulo: `Cambio de turno: ${h.turnoAnterior} → ${h.turnoNuevo}`,
+        detalle: h.motivo || null,
+      });
+    });
+
+    historialEstado.filter(h => h.colabId === seleccionado.id).forEach(h => {
+      const opNuevo = OPCIONES_JEFE.find(o => o.key === h.estadoNuevo);
+      const opAnterior = OPCIONES_JEFE.find(o => o.key === h.estadoAnterior);
+      eventos.push({
+        tipo: "estado",
+        fecha: h.fecha,
+        orden: 2,
+        icon: Flag,
+        color: "text-orange-600",
+        bg: "bg-orange-100",
+        titulo: `Estado laboral: ${opAnterior?.label || h.estadoAnterior} → ${opNuevo?.label || h.estadoNuevo}`,
+        detalle: h.comentario || null,
+      });
+    });
+
+    (notas || []).filter(n => n.colabId === seleccionado.id).forEach(n => {
+      eventos.push({
+        tipo: "nota",
+        fecha: n.fecha,
+        orden: 0,
+        icon: Pencil,
+        color: "text-slate-500",
+        bg: "bg-slate-100",
+        titulo: "Nota",
+        detalle: n.nota || null,
+      });
+    });
+
+    return eventos.sort((a, b) => b.fecha.localeCompare(a.fecha) || b.orden - a.orden);
+  }, [seleccionado, registros, historialTurnos, historialEstado, notas]);
+
+  const resumenAsistencia = useMemo(() => {
+    if (!seleccionado) return null;
+    const regs = registros.filter(r => r.colabId === seleccionado.id);
+    const c = { A: 0, F: 0, L: 0, V: 0 };
+    regs.forEach(r => { if (c[r.estado] !== undefined) c[r.estado]++; });
+    return { ...c, total: regs.length };
+  }, [seleccionado, registros]);
+
+  return (
+    <div className="flex gap-5" style={{ minHeight: "70vh" }}>
+      {/* Lista de colaboradores */}
+      <Card className="!p-0 w-72 shrink-0 overflow-hidden flex flex-col">
+        <div className="p-3 border-b border-slate-100">
+          <input
+            value={busqueda}
+            onChange={e => setBusqueda(e.target.value)}
+            placeholder="Buscar por nombre o RUT..."
+            className={inputBase}
+          />
+        </div>
+        <div className="overflow-y-auto flex-1">
+          {listaFiltrada.map(c => (
+            <button
+              key={c.id}
+              onClick={() => setSeleccionadoId(c.id)}
+              className={`w-full flex items-center gap-2.5 px-3 py-2.5 text-left border-b border-slate-50
+                ${seleccionadoId === c.id ? "bg-indigo-50" : "hover:bg-slate-50"}`}
+            >
+              <div className="w-8 h-8 rounded-full bg-indigo-100 text-indigo-700 flex items-center justify-center text-[11px] font-semibold shrink-0">
+                {iniciales(nombreCompleto(c))}
+              </div>
+              <div className="min-w-0">
+                <p className="text-sm font-medium text-slate-900 truncate">{nombreCompleto(c)}</p>
+                <p className="text-xs text-slate-500 truncate">{c.area}{c.rut ? ` · ${c.rut}` : ""}</p>
+              </div>
+            </button>
+          ))}
+          {listaFiltrada.length === 0 && <p className="text-sm text-slate-400 text-center py-8">Sin resultados.</p>}
+        </div>
+      </Card>
+
+      {/* Detalle de la persona */}
+      <div className="flex-1 min-w-0 space-y-5">
+        {!seleccionado ? (
+          <Card><p className="text-sm text-slate-400 text-center py-10">Selecciona un colaborador.</p></Card>
+        ) : (
+          <React.Fragment>
+            <Card>
+              <div className="flex items-center gap-3">
+                <div className="w-12 h-12 rounded-full bg-indigo-100 text-indigo-700 flex items-center justify-center text-sm font-semibold shrink-0">
+                  {iniciales(nombreCompleto(seleccionado))}
+                </div>
+                <div className="min-w-0 flex-1">
+                  <p className="font-semibold text-slate-900">{nombreCompleto(seleccionado)}</p>
+                  <p className="text-xs text-slate-500">{seleccionado.rut ? `${seleccionado.rut} · ` : ""}{seleccionado.rol} · {seleccionado.area} · Casillero {seleccionado.casillero}</p>
+                </div>
+                <TurnoChip turno={seleccionado.turnoActual} />
+                <EstadoJefeBadge estado={seleccionado.estadoJefe} />
+              </div>
+              {resumenAsistencia && (
+                <div className="flex gap-2 mt-4 flex-wrap">
+                  <span className="text-xs font-medium rounded-full px-2.5 py-1 bg-emerald-100 text-emerald-700">Asistió: {resumenAsistencia.A}</span>
+                  <span className="text-xs font-medium rounded-full px-2.5 py-1 bg-red-100 text-red-700">Faltas: {resumenAsistencia.F}</span>
+                  <span className="text-xs font-medium rounded-full px-2.5 py-1 bg-blue-100 text-blue-700">Licencias: {resumenAsistencia.L}</span>
+                  <span className="text-xs font-medium rounded-full px-2.5 py-1 bg-amber-100 text-amber-700">Vacaciones: {resumenAsistencia.V}</span>
+                </div>
+              )}
+            </Card>
+
+            <Card>
+              <p className="text-sm font-medium text-slate-900 mb-4">Historial completo</p>
+              {timeline.length === 0 && <p className="text-sm text-slate-400 text-center py-8">Sin eventos registrados para esta persona.</p>}
+              <div className="space-y-3 max-h-[28rem] overflow-y-auto pr-1">
+                {timeline.map((ev, i) => (
+                  <div key={i} className="flex gap-3">
+                    <div className={`w-8 h-8 rounded-full ${ev.bg} ${ev.color} flex items-center justify-center shrink-0`}>
+                      <ev.icon size={15} />
+                    </div>
+                    <div className="min-w-0 flex-1 pb-3 border-b border-slate-50 last:border-0">
+                      <div className="flex items-center justify-between gap-2">
+                        <p className="text-sm font-medium text-slate-900">{ev.titulo}</p>
+                        <span className="text-xs text-slate-400 shrink-0">{fmtFecha(ev.fecha)}</span>
+                      </div>
+                      {ev.detalle && <p className="text-xs text-slate-500 mt-0.5">{ev.detalle}</p>}
+                    </div>
+                  </div>
+                ))}
+              </div>
+            </Card>
+          </React.Fragment>
+        )}
+      </div>
+    </div>
+  );
+}
+
+// ---------------------------------------------------------------------------
+// APP PRINCIPAL
+// ---------------------------------------------------------------------------
+function AsistenciaApp() {
+  const [colaboradores, saveColaboradores, loadingColab, errorColab] = useSharedList("asist-colaboradores");
+  const [registros, saveRegistros, loadingReg, errorReg] = useSharedList("asist-registros");
+  const [historialTurnos, saveHistorial, loadingHist, errorHist] = useSharedList("asist-turnos-historial");
+  const [historialEstado, saveHistorialEstado, loadingHistEstado, errorHistEstado] = useSharedList("asist-historial-estado");
+  const [notas, saveNotas, loadingNotas, errorNotas] = useSharedList("asist-notas");
+  const errorConexion = errorColab || errorReg || errorHist || errorHistEstado || errorNotas;
+
+  const [vista, setVista] = useState("asistencia");
+  const [modoJefe, setModoJefe] = useState(false);
+  const [mostrarLogin, setMostrarLogin] = useState(false);
+  const [colabHistorial, setColabHistorial] = useState(null);
+
+  const [turnoSel, setTurnoSel] = useState("T1");
+  const [fechaSel, setFechaSel] = useState(today());
+  const [areaFiltro, setAreaFiltro] = useState("Todos");
+  const [estadoLocal, setEstadoLocal] = useState({});
+  const [guardando, setGuardando] = useState(false);
+  const [toast, setToast] = useState(null);
+
+  const loading = loadingColab || loadingReg || loadingHist || loadingHistEstado || loadingNotas;
+
+  // Nota: ya no se auto-siembran colaboradores de muestra. La lista empieza vacía
+  // y se puebla importando el CSV real desde Estado laboral.
+
+  const claveTurno = `${fechaSel}|${turnoSel}`;
+
+  useEffect(() => {
+    const map = {};
+    registros.filter(r => r.clave === claveTurno).forEach(r => {
+      map[r.colabId] = { estado: r.estado, obs: r.obs || "" };
+    });
+    setEstadoLocal(map);
+  }, [claveTurno, loadingReg]);
+
+  function mostrarToast(msg, kind = "ok") {
+    setToast({ msg, kind });
+    setTimeout(() => setToast(null), 4500);
+  }
+
+  // Conserva máximo 3 observaciones (las más recientes) por colaborador; el resto se vacía.
+  function limitarObservaciones(regs) {
+    const porPersona = {};
+    regs.forEach((r, idx) => {
+      if (r.obs && r.obs.trim()) {
+        (porPersona[r.colabId] = porPersona[r.colabId] || []).push({ idx, fecha: r.fecha });
+      }
+    });
+    const copia = regs.map(r => ({ ...r }));
+    Object.values(porPersona).forEach(lista => {
+      if (lista.length > 3) {
+        lista.sort((a, b) => b.fecha.localeCompare(a.fecha));
+        lista.slice(3).forEach(item => { copia[item.idx].obs = ""; });
+      }
+    });
+    return copia;
+  }
+
+  async function guardarAsistencia() {
+    setGuardando(true);
+    const otros = registros.filter(r => r.clave !== claveTurno);
+    const nuevos = Object.entries(estadoLocal)
+      .filter(([, v]) => v?.estado)
+      .map(([colabId, v]) => ({
+        clave: claveTurno,
+        colabId: Number(colabId),
+        estado: v.estado,
+        obs: v.obs || "",
+        fecha: fechaSel,
+        turno: turnoSel,
+      }));
+    const combinados = limitarObservaciones([...otros, ...nuevos]);
+    const ok = await saveRegistros(combinados);
+    setGuardando(false);
+    mostrarToast(ok ? "Asistencia guardada correctamente" : "Error al guardar la asistencia", ok ? "ok" : "error");
+  }
+
+  function salirModoJefe() {
+    setModoJefe(false);
+    if (vista !== "asistencia") setVista("asistencia");
+  }
+
+  const titulos = {
+    asistencia: "Asistencia del turno",
+    indicadores: "Indicadores",
+    estadoLaboral: "Estado laboral",
+    historial: "Historial por persona",
+  };
+
+  if (loading) {
+    return (
+      <div className="min-h-screen bg-slate-50 flex items-center justify-center">
+        <Loader />
+      </div>
+    );
+  }
+
+  return (
+    <div className="min-h-screen bg-slate-50 flex">
+      <Sidebar
+        vista={vista}
+        setVista={setVista}
+        modoJefe={modoJefe}
+        onLogin={() => setMostrarLogin(true)}
+        onLogout={salirModoJefe}
+      />
+
+      <div className="flex-1 min-w-0">
+        <header className="bg-white border-b border-slate-200 px-8 py-5">
+          <h1 className="text-lg font-semibold text-slate-900">{titulos[vista]}</h1>
+        </header>
+
+        {errorConexion && (
+          <div className="bg-red-50 border-b border-red-200 px-8 py-2.5 text-xs text-red-700">
+            <strong>Error de conexión con la base de datos:</strong> {errorConexion}
+          </div>
+        )}
+
+        <main className="p-8 max-w-6xl">
+          {vista === "asistencia" && (
+            <PantallaAsistencia
+              colaboradores={colaboradores}
+              registros={registros}
+              claveTurno={claveTurno}
+              estadoLocal={estadoLocal}
+              setEstadoLocal={setEstadoLocal}
+              turnoSel={turnoSel}
+              setTurnoSel={setTurnoSel}
+              fechaSel={fechaSel}
+              setFechaSel={setFechaSel}
+              areaFiltro={areaFiltro}
+              setAreaFiltro={setAreaFiltro}
+              onGuardar={guardarAsistencia}
+              guardando={guardando}
+              modoJefe={modoJefe}
+              onIrHistorialPersona={setColabHistorial}
+            />
+          )}
+
+          {vista === "indicadores" && modoJefe && (
+            <PantallaIndicadores colaboradores={colaboradores} registros={registros} />
+          )}
+
+          {vista === "estadoLaboral" && modoJefe && (
+            <PantallaEstadoLaboral
+              colaboradores={colaboradores}
+              saveColaboradores={saveColaboradores}
+              historialEstado={historialEstado}
+              saveHistorialEstado={saveHistorialEstado}
+              notas={notas}
+              saveNotas={saveNotas}
+              onToast={mostrarToast}
+              onIrHistorialPersona={setColabHistorial}
+            />
+          )}
+
+          {vista === "historial" && modoJefe && (
+            <PantallaHistorialPorPersona
+              colaboradores={colaboradores}
+              registros={registros}
+              historialTurnos={historialTurnos}
+              historialEstado={historialEstado}
+              notas={notas}
+            />
+          )}
+        </main>
+      </div>
+
+      {colabHistorial && (
+        <PanelHistorialTurno
+          colaborador={colabHistorial}
+          colaboradores={colaboradores}
+          saveColaboradores={saveColaboradores}
+          historial={historialTurnos}
+          saveHistorial={saveHistorial}
+          onToast={mostrarToast}
+          onClose={() => setColabHistorial(null)}
+        />
+      )}
+
+      {mostrarLogin && (
+        <LoginJefeModal
+          onClose={() => setMostrarLogin(false)}
+          onSuccess={() => { setModoJefe(true); setMostrarLogin(false); mostrarToast("Modo Jefe activado"); }}
+        />
+      )}
+
+      <ToastHost toast={toast} />
+    </div>
+  );
+}
+
+ReactDOM.createRoot(document.getElementById("root")).render(<AsistenciaApp />);
+</script>
+</body>
+</html>
