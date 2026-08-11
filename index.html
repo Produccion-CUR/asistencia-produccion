@@ -265,6 +265,22 @@ async function backendAgregar(key, items) {
   });
 }
 
+// Ejecuta varias operaciones ({modo, key, items|value, claveCampo}) en UNA sola
+// solicitud de red (una sola vuelta al servidor), en vez de una por operación.
+// Ideal cuando una acción del usuario toca más de un dataset a la vez
+// (ej: cambiar estado = actualizar colaboradores + agregar al historial).
+async function backendLote(operaciones) {
+  return encolarBackend(async () => {
+    const res = await fetch(APPS_SCRIPT_URL, {
+      method: "POST",
+      headers: { "Content-Type": "text/plain;charset=utf-8" },
+      body: JSON.stringify({ modo: "lote", operaciones }),
+    });
+    if (!res.ok) throw new Error(`HTTP ${res.status}`);
+    return res.json();
+  });
+}
+
 function useSharedList(key) {
   const [items, setItems] = useState([]);
   const [loading, setLoading] = useState(true);
@@ -332,7 +348,14 @@ function useSharedList(key) {
     } catch (e) { setError(`Error: ${e?.message}`); return false; }
   }, [key]);
 
-  return [items, save, loading, error, saveUpsert, saveAgregar];
+  // Actualiza SOLO el estado local (sin red). Se usa cuando la escritura real
+  // se va a mandar combinada con otras en una sola llamada (ver backendLote).
+  const setLocal = useCallback((newItemsCompleto) => {
+    setItems(newItemsCompleto);
+    ultimoValorCrudo.current = JSON.stringify(newItemsCompleto);
+  }, []);
+
+  return [items, save, loading, error, saveUpsert, saveAgregar, setLocal];
 }
 
 // ---------------------------------------------------------------------------
@@ -704,7 +727,7 @@ function PantallaAsistencia({
 // ---------------------------------------------------------------------------
 // PANEL: HISTORIAL DE CAMBIOS DE TURNO
 // ---------------------------------------------------------------------------
-function PanelHistorialTurno({ colaborador, colaboradores, saveColaboradores, saveColaboradoresUpsert, historial, saveHistorial, saveHistorialAgregar, onToast, onClose }) {
+function PanelHistorialTurno({ colaborador, colaboradores, saveColaboradores, saveColaboradoresUpsert, setColaboradoresLocal, historial, saveHistorial, saveHistorialAgregar, setHistorialTurnosLocal, onToast, onClose }) {
   const [turnoNuevo, setTurnoNuevo] = useState(colaborador.turnoActual);
   const [motivo, setMotivo] = useState("");
   const [guardando, setGuardando] = useState(false);
@@ -718,6 +741,7 @@ function PanelHistorialTurno({ colaborador, colaboradores, saveColaboradores, sa
     if (turnoNuevo === colaborador.turnoActual) { onToast("Selecciona un turno distinto al actual", "error"); return; }
     if (motivo.trim().length === 0) { onToast("Agrega una observación para el cambio de turno", "error"); return; }
     setGuardando(true);
+
     const nuevoRegistro = {
       id: Date.now(),
       colabId: colaborador.id,
@@ -726,12 +750,24 @@ function PanelHistorialTurno({ colaborador, colaboradores, saveColaboradores, sa
       fecha: today(),
       motivo: motivo.trim(),
     };
-    const okHist = await saveHistorialAgregar([nuevoRegistro, ...historial], [nuevoRegistro]);
     const colaboradorActualizado = { ...colaborador, turnoActual: turnoNuevo };
     const nuevosColab = colaboradores.map(c => c.id === colaborador.id ? colaboradorActualizado : c);
-    const okColab = await saveColaboradoresUpsert(nuevosColab, [colaboradorActualizado], "id");
+    const nuevoHistorialCompleto = [nuevoRegistro, ...historial];
+
+    setColaboradoresLocal(nuevosColab);
+    setHistorialTurnosLocal(nuevoHistorialCompleto);
+
+    let ok = false;
+    try {
+      const data = await backendLote([
+        { modo: "upsert", key: "asist-colaboradores", items: [colaboradorActualizado], claveCampo: "id" },
+        { modo: "agregar", key: "asist-turnos-historial", items: [nuevoRegistro] },
+      ]);
+      ok = !!data?.ok;
+    } catch (e) { ok = false; }
+
     setGuardando(false);
-    if (okHist && okColab) {
+    if (ok) {
       setMotivo("");
       onToast("Cambio de turno registrado", "ok");
     } else {
@@ -1331,9 +1367,9 @@ function ModalNuevoColaborador({ colaboradores, saveColaboradores, onToast, onCl
 }
 
 function PantallaEstadoLaboral({
-  colaboradores, saveColaboradores, saveColaboradoresUpsert,
-  historialEstado, saveHistorialEstado, saveHistorialEstadoAgregar,
-  historialTurnos, saveHistorial, saveHistorialAgregar,
+  colaboradores, saveColaboradores, saveColaboradoresUpsert, setColaboradoresLocal,
+  historialEstado, saveHistorialEstado, saveHistorialEstadoAgregar, setHistorialEstadoLocal,
+  historialTurnos, saveHistorial, saveHistorialAgregar, setHistorialTurnosLocal,
   notas, saveNotas, onToast, onIrHistorialPersona,
 }) {
   const [filtro, setFiltro] = useState("Todos");
@@ -1361,8 +1397,7 @@ function PantallaEstadoLaboral({
   async function confirmarCambioEstado(comentario) {
     const { colaborador, estadoNuevo } = pendingCambio;
     const colaboradorActualizado = { ...colaborador, estadoJefe: estadoNuevo };
-    const nuevos = colaboradores.map(c => c.id === colaborador.id ? colaboradorActualizado : c);
-    const okColab = await saveColaboradoresUpsert(nuevos, [colaboradorActualizado], "id");
+    const nuevosColab = colaboradores.map(c => c.id === colaborador.id ? colaboradorActualizado : c);
 
     const registro = {
       id: Date.now(),
@@ -1372,9 +1407,22 @@ function PantallaEstadoLaboral({
       fecha: today(),
       comentario,
     };
-    const okHist = await saveHistorialEstadoAgregar([registro, ...historialEstado], [registro]);
+    const nuevoHistorial = [registro, ...historialEstado];
 
-    if (okColab && okHist) {
+    // Actualiza la pantalla al instante; la escritura real va combinada en UNA sola llamada de red.
+    setColaboradoresLocal(nuevosColab);
+    setHistorialEstadoLocal(nuevoHistorial);
+
+    let ok = false;
+    try {
+      const data = await backendLote([
+        { modo: "upsert", key: "asist-colaboradores", items: [colaboradorActualizado], claveCampo: "id" },
+        { modo: "agregar", key: "asist-historial-estado", items: [registro] },
+      ]);
+      ok = !!data?.ok;
+    } catch (e) { ok = false; }
+
+    if (ok) {
       const opcionNueva = OPCIONES_JEFE.find(o => o.key === estadoNuevo);
       const seOculta = filtro !== "Todos" && filtro !== estadoNuevo;
       onToast(
@@ -1408,14 +1456,13 @@ function PantallaEstadoLaboral({
   async function confirmarCambioLote(tipoCambio, valorNuevo, comentario) {
     const idsSeleccionados = Array.from(seleccionados);
     const colaboradoresSeleccionados = colaboradores.filter(c => idsSeleccionados.includes(c.id));
+    let ok = false;
 
     if (tipoCambio === "estado") {
       const colaboradoresActualizados = colaboradoresSeleccionados.map(c => ({ ...c, estadoJefe: valorNuevo }));
-      const nuevos = colaboradores.map(c =>
+      const nuevosColab = colaboradores.map(c =>
         idsSeleccionados.includes(c.id) ? colaboradoresActualizados.find(a => a.id === c.id) : c
       );
-      const okColab = await saveColaboradoresUpsert(nuevos, colaboradoresActualizados, "id");
-
       const nuevosRegistrosHistorial = colaboradoresSeleccionados.map((c, i) => ({
         id: Date.now() + i,
         colabId: c.id,
@@ -1424,22 +1471,30 @@ function PantallaEstadoLaboral({
         fecha: today(),
         comentario,
       }));
-      const okHist = await saveHistorialEstadoAgregar([...nuevosRegistrosHistorial, ...historialEstado], nuevosRegistrosHistorial);
+      const nuevoHistorialCompleto = [...nuevosRegistrosHistorial, ...historialEstado];
+
+      setColaboradoresLocal(nuevosColab);
+      setHistorialEstadoLocal(nuevoHistorialCompleto);
+      try {
+        const data = await backendLote([
+          { modo: "upsert", key: "asist-colaboradores", items: colaboradoresActualizados, claveCampo: "id" },
+          { modo: "agregar", key: "asist-historial-estado", items: nuevosRegistrosHistorial },
+        ]);
+        ok = !!data?.ok;
+      } catch (e) { ok = false; }
 
       const opcionNueva = OPCIONES_JEFE.find(o => o.key === valorNuevo);
       onToast(
-        okColab && okHist
+        ok
           ? `${colaboradoresSeleccionados.length} colaborador(es) pasaron a "${opcionNueva?.label}"`
           : "Error al actualizar en lote",
-        okColab && okHist ? "ok" : "error"
+        ok ? "ok" : "error"
       );
     } else {
       const colaboradoresActualizados = colaboradoresSeleccionados.map(c => ({ ...c, turnoActual: valorNuevo }));
-      const nuevos = colaboradores.map(c =>
+      const nuevosColab = colaboradores.map(c =>
         idsSeleccionados.includes(c.id) ? colaboradoresActualizados.find(a => a.id === c.id) : c
       );
-      const okColab = await saveColaboradoresUpsert(nuevos, colaboradoresActualizados, "id");
-
       const nuevosRegistrosTurno = colaboradoresSeleccionados.map((c, i) => ({
         id: Date.now() + i,
         colabId: c.id,
@@ -1448,14 +1503,24 @@ function PantallaEstadoLaboral({
         fecha: today(),
         motivo: comentario,
       }));
-      const okHist = await saveHistorialAgregar([...nuevosRegistrosTurno, ...historialTurnos], nuevosRegistrosTurno);
+      const nuevoHistorialTurnosCompleto = [...nuevosRegistrosTurno, ...historialTurnos];
+
+      setColaboradoresLocal(nuevosColab);
+      setHistorialTurnosLocal(nuevoHistorialTurnosCompleto);
+      try {
+        const data = await backendLote([
+          { modo: "upsert", key: "asist-colaboradores", items: colaboradoresActualizados, claveCampo: "id" },
+          { modo: "agregar", key: "asist-turnos-historial", items: nuevosRegistrosTurno },
+        ]);
+        ok = !!data?.ok;
+      } catch (e) { ok = false; }
 
       const turnoLabel = TURNOS.find(t => t.key === valorNuevo)?.label;
       onToast(
-        okColab && okHist
+        ok
           ? `${colaboradoresSeleccionados.length} colaborador(es) pasaron a "${turnoLabel}"`
           : "Error al actualizar en lote",
-        okColab && okHist ? "ok" : "error"
+        ok ? "ok" : "error"
       );
     }
     setSeleccionados(new Set());
@@ -2038,10 +2103,10 @@ function PantallaHistorialPorPersona({ colaboradores, registros, historialTurnos
 // APP PRINCIPAL
 // ---------------------------------------------------------------------------
 function AsistenciaApp() {
-  const [colaboradores, saveColaboradores, loadingColab, errorColab, saveColaboradoresUpsert] = useSharedList("asist-colaboradores");
+  const [colaboradores, saveColaboradores, loadingColab, errorColab, saveColaboradoresUpsert, _colabAgregarNoUsado, setColaboradoresLocal] = useSharedList("asist-colaboradores");
   const [registros, saveRegistros, loadingReg, errorReg, saveRegistrosUpsert] = useSharedList("asist-registros");
-  const [historialTurnos, saveHistorial, loadingHist, errorHist, saveHistorialUpsert, saveHistorialAgregar] = useSharedList("asist-turnos-historial");
-  const [historialEstado, saveHistorialEstado, loadingHistEstado, errorHistEstado, saveHistorialEstadoUpsert, saveHistorialEstadoAgregar] = useSharedList("asist-historial-estado");
+  const [historialTurnos, saveHistorial, loadingHist, errorHist, saveHistorialUpsert, saveHistorialAgregar, setHistorialTurnosLocal] = useSharedList("asist-turnos-historial");
+  const [historialEstado, saveHistorialEstado, loadingHistEstado, errorHistEstado, saveHistorialEstadoUpsert, saveHistorialEstadoAgregar, setHistorialEstadoLocal] = useSharedList("asist-historial-estado");
   const [notas, saveNotas, loadingNotas, errorNotas, saveNotasUpsert, saveNotasAgregar] = useSharedList("asist-notas");
   const errorConexion = errorColab || errorReg || errorHist || errorHistEstado || errorNotas;
 
@@ -2185,12 +2250,15 @@ function AsistenciaApp() {
               colaboradores={colaboradores}
               saveColaboradores={saveColaboradores}
               saveColaboradoresUpsert={saveColaboradoresUpsert}
+              setColaboradoresLocal={setColaboradoresLocal}
               historialEstado={historialEstado}
               saveHistorialEstado={saveHistorialEstado}
               saveHistorialEstadoAgregar={saveHistorialEstadoAgregar}
+              setHistorialEstadoLocal={setHistorialEstadoLocal}
               historialTurnos={historialTurnos}
               saveHistorial={saveHistorial}
               saveHistorialAgregar={saveHistorialAgregar}
+              setHistorialTurnosLocal={setHistorialTurnosLocal}
               notas={notas}
               saveNotas={saveNotas}
               onToast={mostrarToast}
@@ -2216,9 +2284,11 @@ function AsistenciaApp() {
           colaboradores={colaboradores}
           saveColaboradores={saveColaboradores}
           saveColaboradoresUpsert={saveColaboradoresUpsert}
+          setColaboradoresLocal={setColaboradoresLocal}
           historial={historialTurnos}
           saveHistorial={saveHistorial}
           saveHistorialAgregar={saveHistorialAgregar}
+          setHistorialTurnosLocal={setHistorialTurnosLocal}
           onToast={mostrarToast}
           onClose={() => setColabHistorial(null)}
         />
