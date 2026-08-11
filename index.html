@@ -1056,6 +1056,73 @@ function ModalComentarioEstado({ colaborador, estadoNuevo, onClose, onConfirm })
   );
 }
 
+function ModalCambioEstadoLote({ colaboradoresSeleccionados, onClose, onConfirm }) {
+  const [estadoNuevo, setEstadoNuevo] = useState("activo");
+  const [comentario, setComentario] = useState("");
+  const [guardando, setGuardando] = useState(false);
+
+  async function confirmar() {
+    if (comentario.trim().length === 0) return;
+    setGuardando(true);
+    await onConfirm(estadoNuevo, comentario.trim());
+    setGuardando(false);
+  }
+
+  return (
+    <div className="fixed inset-0 z-50 bg-black/40 flex items-center justify-center p-4" onClick={onClose}>
+      <div onClick={e => e.stopPropagation()} className="bg-white rounded-2xl w-full max-w-md p-6 space-y-4 shadow-xl max-h-[85vh] overflow-y-auto">
+        <div className="flex items-center justify-between">
+          <h2 className="font-semibold text-slate-900">Cambiar estado a {colaboradoresSeleccionados.length} colaborador(es)</h2>
+          <button onClick={onClose} className="p-1 rounded-lg hover:bg-slate-100"><XIcon size={18} /></button>
+        </div>
+
+        <div className="max-h-28 overflow-y-auto rounded-xl bg-slate-50 border border-slate-100 p-2 space-y-1">
+          {colaboradoresSeleccionados.map(c => (
+            <p key={c.id} className="text-xs text-slate-600 truncate">{nombreCompleto(c)}</p>
+          ))}
+        </div>
+
+        <div>
+          <label className="text-xs text-slate-500 mb-1.5 block">Nuevo estado</label>
+          <div className="flex flex-wrap gap-1.5">
+            {OPCIONES_JEFE.map(o => (
+              <button
+                key={o.key}
+                onClick={() => setEstadoNuevo(o.key)}
+                className={`rounded-lg px-2.5 py-1.5 text-[11px] font-medium border transition
+                  ${estadoNuevo === o.key ? `${o.bg} text-white border-transparent` : `${o.light} hover:opacity-80`}`}
+              >
+                {o.label}
+              </button>
+            ))}
+          </div>
+        </div>
+
+        <div>
+          <textarea
+            autoFocus
+            value={comentario}
+            onChange={e => setComentario(e.target.value)}
+            placeholder="Comentario del cambio (obligatorio, ej: 'Inicio temporada 2026/27')"
+            rows={3}
+            className={inputBase}
+          />
+          <p className="text-xs text-slate-400 mt-1">Este comentario quedará en el historial de cada persona seleccionada.</p>
+        </div>
+
+        <button
+          onClick={confirmar}
+          disabled={guardando || comentario.trim().length === 0}
+          className="w-full rounded-xl bg-slate-900 text-white py-2.5 text-sm font-medium disabled:opacity-50 hover:bg-slate-800 flex items-center justify-center gap-2"
+        >
+          {guardando ? <Loader2 size={16} className="animate-spin" /> : <Check size={16} />}
+          Aplicar a {colaboradoresSeleccionados.length} colaborador(es)
+        </button>
+      </div>
+    </div>
+  );
+}
+
 // ---------------------------------------------------------------------------
 // PANTALLA: ESTADO LABORAL
 // ---------------------------------------------------------------------------
@@ -1179,6 +1246,8 @@ function PantallaEstadoLaboral({ colaboradores, saveColaboradores, historialEsta
   const [importando, setImportando] = useState(false);
   const [actualizarExistentes, setActualizarExistentes] = useState(false);
   const [mostrarNuevoColaborador, setMostrarNuevoColaborador] = useState(false);
+  const [seleccionados, setSeleccionados] = useState(new Set());
+  const [mostrarCambioLote, setMostrarCambioLote] = useState(false);
   const fileInputRef = useRef(null);
 
   const lista = useMemo(() => {
@@ -1216,6 +1285,52 @@ function PantallaEstadoLaboral({ colaboradores, saveColaboradores, historialEsta
       onToast("Error al actualizar", "error");
     }
     setPendingCambio(null);
+  }
+
+  function toggleSeleccion(id) {
+    setSeleccionados(prev => {
+      const next = new Set(prev);
+      if (next.has(id)) next.delete(id); else next.add(id);
+      return next;
+    });
+  }
+
+  function toggleSeleccionarTodos() {
+    setSeleccionados(prev => {
+      const todosSeleccionados = lista.length > 0 && lista.every(c => prev.has(c.id));
+      if (todosSeleccionados) return new Set();
+      return new Set(lista.map(c => c.id));
+    });
+  }
+
+  async function confirmarCambioLote(estadoNuevo, comentario) {
+    const idsSeleccionados = Array.from(seleccionados);
+    const colaboradoresSeleccionados = colaboradores.filter(c => idsSeleccionados.includes(c.id));
+
+    const nuevos = colaboradores.map(c =>
+      idsSeleccionados.includes(c.id) ? { ...c, estadoJefe: estadoNuevo } : c
+    );
+    const okColab = await saveColaboradores(nuevos);
+
+    const nuevosRegistrosHistorial = colaboradoresSeleccionados.map((c, i) => ({
+      id: Date.now() + i,
+      colabId: c.id,
+      estadoAnterior: c.estadoJefe,
+      estadoNuevo,
+      fecha: today(),
+      comentario,
+    }));
+    const okHist = await saveHistorialEstado([...nuevosRegistrosHistorial, ...historialEstado]);
+
+    const opcionNueva = OPCIONES_JEFE.find(o => o.key === estadoNuevo);
+    onToast(
+      okColab && okHist
+        ? `${colaboradoresSeleccionados.length} colaborador(es) pasaron a "${opcionNueva?.label}"`
+        : "Error al actualizar en lote",
+      okColab && okHist ? "ok" : "error"
+    );
+    setSeleccionados(new Set());
+    setMostrarCambioLote(false);
   }
 
   async function guardarCasillero(id) {
@@ -1434,10 +1549,32 @@ function PantallaEstadoLaboral({ colaboradores, saveColaboradores, historialEsta
         })}
       </div>
 
+      {seleccionados.size > 0 && (
+        <div className="flex items-center justify-between gap-3 bg-indigo-50 border border-indigo-200 rounded-xl px-4 py-2.5">
+          <span className="text-sm text-indigo-900 font-medium">{seleccionados.size} colaborador(es) seleccionado(s)</span>
+          <div className="flex gap-2">
+            <button onClick={() => setSeleccionados(new Set())} className="text-xs text-indigo-700 px-3 py-1.5 rounded-lg hover:bg-indigo-100">
+              Cancelar selección
+            </button>
+            <button onClick={() => setMostrarCambioLote(true)} className="text-xs bg-indigo-600 text-white px-3.5 py-1.5 rounded-lg font-medium hover:bg-indigo-700">
+              Cambiar estado en lote
+            </button>
+          </div>
+        </div>
+      )}
+
       <Card className="!p-0 overflow-hidden">
         <table className="w-full text-sm">
           <thead>
             <tr className="bg-slate-50 border-b border-slate-200 text-left text-xs text-slate-500">
+              <th className="px-4 py-3 font-medium w-8">
+                <input
+                  type="checkbox"
+                  checked={lista.length > 0 && lista.every(c => seleccionados.has(c.id))}
+                  onChange={toggleSeleccionarTodos}
+                  className="rounded border-slate-300"
+                />
+              </th>
               <th className="px-4 py-3 font-medium">Colaborador</th>
               <th className="px-4 py-3 font-medium">Área</th>
               <th className="px-4 py-3 font-medium">Cargo</th>
@@ -1448,7 +1585,15 @@ function PantallaEstadoLaboral({ colaboradores, saveColaboradores, historialEsta
           </thead>
           <tbody>
             {lista.map(c => (
-              <tr key={c.id} className="border-b border-slate-100 hover:bg-slate-50/60">
+              <tr key={c.id} className={`border-b border-slate-100 hover:bg-slate-50/60 ${seleccionados.has(c.id) ? "bg-indigo-50/60" : ""}`}>
+                <td className="px-4 py-3">
+                  <input
+                    type="checkbox"
+                    checked={seleccionados.has(c.id)}
+                    onChange={() => toggleSeleccion(c.id)}
+                    className="rounded border-slate-300"
+                  />
+                </td>
                 <td className="px-4 py-3">
                   <div className="flex items-center gap-2.5">
                     <div className="w-8 h-8 rounded-full bg-indigo-100 text-indigo-700 flex items-center justify-center text-[11px] font-semibold shrink-0">
@@ -1546,7 +1691,7 @@ function PantallaEstadoLaboral({ colaboradores, saveColaboradores, historialEsta
               </tr>
             ))}
             {lista.length === 0 && (
-              <tr><td colSpan={6} className="px-4 py-10 text-center text-slate-400">No hay colaboradores en este estado.</td></tr>
+              <tr><td colSpan={7} className="px-4 py-10 text-center text-slate-400">No hay colaboradores en este estado.</td></tr>
             )}
           </tbody>
         </table>
@@ -1567,6 +1712,14 @@ function PantallaEstadoLaboral({ colaboradores, saveColaboradores, historialEsta
           saveColaboradores={saveColaboradores}
           onToast={onToast}
           onClose={() => setMostrarNuevoColaborador(false)}
+        />
+      )}
+
+      {mostrarCambioLote && (
+        <ModalCambioEstadoLote
+          colaboradoresSeleccionados={colaboradores.filter(c => seleccionados.has(c.id))}
+          onClose={() => setMostrarCambioLote(false)}
+          onConfirm={confirmarCambioLote}
         />
       )}
     </div>
