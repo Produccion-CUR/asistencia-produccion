@@ -641,7 +641,7 @@ function PantallaAsistencia({
               <th className="px-4 py-3 font-medium text-center">F</th>
               <th className="px-4 py-3 font-medium text-center">L</th>
               <th className="px-4 py-3 font-medium text-center">V</th>
-              <th className="px-4 py-3 font-medium">Obs.</th>
+              {modoJefe && <th className="px-4 py-3 font-medium">Obs.</th>}
               {modoJefe && <th className="px-4 py-3 font-medium text-center">Turnos</th>}
             </tr>
           </thead>
@@ -678,13 +678,15 @@ function PantallaAsistencia({
                         </button>
                       </td>
                     ))}
-                    <td className="px-4 py-3">
-                      <button onClick={() => setFilaAbierta(abierta ? null : c.id)} className="text-slate-400 hover:text-slate-600 flex items-center gap-1 text-xs">
-                        {actual.obs ? "Ver nota" : "Agregar"}
-                        <span className={`text-[10px] rounded-full px-1.5 ${obsCount >= 3 ? "bg-amber-100 text-amber-700" : "bg-slate-100 text-slate-400"}`}>{obsCount}/3</span>
-                        {abierta ? <ChevronDown size={13} /> : <ChevronRight size={13} />}
-                      </button>
-                    </td>
+                    {modoJefe && (
+                      <td className="px-4 py-3">
+                        <button onClick={() => setFilaAbierta(abierta ? null : c.id)} className="text-slate-400 hover:text-slate-600 flex items-center gap-1 text-xs">
+                          {actual.obs ? "Ver nota" : "Agregar"}
+                          <span className={`text-[10px] rounded-full px-1.5 ${obsCount >= 3 ? "bg-amber-100 text-amber-700" : "bg-slate-100 text-slate-400"}`}>{obsCount}/3</span>
+                          {abierta ? <ChevronDown size={13} /> : <ChevronRight size={13} />}
+                        </button>
+                      </td>
+                    )}
                     {modoJefe && (
                       <td className="px-4 py-3 text-center">
                         <button onClick={() => onIrHistorialPersona(c)} className="p-1.5 rounded-lg hover:bg-slate-100" title="Historial de turnos">
@@ -693,9 +695,9 @@ function PantallaAsistencia({
                       </td>
                     )}
                   </tr>
-                  {abierta && (
+                  {modoJefe && abierta && (
                     <tr className="border-b border-slate-100 bg-slate-50/40">
-                      <td colSpan={modoJefe ? 9 : 8} className="px-4 py-3">
+                      <td colSpan={9} className="px-4 py-3">
                         {obsCount >= 3 && !actual.obs && (
                           <p className="text-xs text-amber-600 mb-1.5">Esta persona ya tiene 3 observaciones guardadas. Si agregas una nueva, se eliminará la más antigua.</p>
                         )}
@@ -713,7 +715,7 @@ function PantallaAsistencia({
               );
             })}
             {visibles.length === 0 && (
-              <tr><td colSpan={modoJefe ? 9 : 8} className="px-4 py-10 text-center text-slate-400">No hay colaboradores en este turno/área.</td></tr>
+              <tr><td colSpan={modoJefe ? 9 : 7} className="px-4 py-10 text-center text-slate-400">No hay colaboradores en este turno/área.</td></tr>
             )}
           </tbody>
         </table>
@@ -2206,6 +2208,15 @@ function AsistenciaApp() {
     }
 
     setGuardando(false);
+    if (ok) {
+      // Se limpian las observaciones ya guardadas para empezar una nueva la
+      // próxima vez; el estado A/F/L/V marcado se mantiene tal cual.
+      setEstadoLocal(prev => {
+        const next = {};
+        Object.entries(prev).forEach(([colabId, v]) => { next[colabId] = { ...v, obs: "" }; });
+        return next;
+      });
+    }
     mostrarToast(ok ? "Asistencia guardada correctamente" : "Error al guardar la asistencia", ok ? "ok" : "error");
   }
 
