@@ -2104,7 +2104,7 @@ function PantallaHistorialPorPersona({ colaboradores, registros, historialTurnos
 // ---------------------------------------------------------------------------
 function AsistenciaApp() {
   const [colaboradores, saveColaboradores, loadingColab, errorColab, saveColaboradoresUpsert, _colabAgregarNoUsado, setColaboradoresLocal] = useSharedList("asist-colaboradores");
-  const [registros, saveRegistros, loadingReg, errorReg, saveRegistrosUpsert] = useSharedList("asist-registros");
+  const [registros, saveRegistros, loadingReg, errorReg, saveRegistrosUpsert, _regAgregarNoUsado, setRegistrosLocal] = useSharedList("asist-registros");
   const [historialTurnos, saveHistorial, loadingHist, errorHist, saveHistorialUpsert, saveHistorialAgregar, setHistorialTurnosLocal] = useSharedList("asist-turnos-historial");
   const [historialEstado, saveHistorialEstado, loadingHistEstado, errorHistEstado, saveHistorialEstadoUpsert, saveHistorialEstadoAgregar, setHistorialEstadoLocal] = useSharedList("asist-historial-estado");
   const [notas, saveNotas, loadingNotas, errorNotas, saveNotasUpsert, saveNotasAgregar] = useSharedList("asist-notas");
@@ -2143,6 +2143,8 @@ function AsistenciaApp() {
   }
 
   // Conserva máximo 3 observaciones (las más recientes) por colaborador; el resto se vacía.
+  // Igual que antes, pero además devuelve qué índices quedaron modificados
+  // (a los que se les vació la observación por pasar el límite de 3).
   function limitarObservaciones(regs) {
     const porPersona = {};
     regs.forEach((r, idx) => {
@@ -2151,30 +2153,58 @@ function AsistenciaApp() {
       }
     });
     const copia = regs.map(r => ({ ...r }));
+    const idxModificados = new Set();
     Object.values(porPersona).forEach(lista => {
       if (lista.length > 3) {
         lista.sort((a, b) => b.fecha.localeCompare(a.fecha));
-        lista.slice(3).forEach(item => { copia[item.idx].obs = ""; });
+        lista.slice(3).forEach(item => { copia[item.idx].obs = ""; idxModificados.add(item.idx); });
       }
     });
-    return copia;
+    return { combinados: copia, idxModificados };
   }
 
   async function guardarAsistencia() {
     setGuardando(true);
     const otros = registros.filter(r => r.clave !== claveTurno);
+    // Migración automática: si algún registro antiguo no tiene "id" (viene de
+    // antes de esta optimización), se le asigna aquí. No requiere acción del usuario.
+    const necesitaMigracion = otros.some(r => !r.id);
+    const otrosConId = otros.map(r => r.id ? r : { ...r, id: `${r.clave}_${r.colabId}` });
+
     const nuevos = Object.entries(estadoLocal)
       .filter(([, v]) => v?.estado)
-      .map(([colabId, v]) => ({
-        clave: claveTurno,
-        colabId: Number(colabId),
-        estado: v.estado,
-        obs: v.obs || "",
-        fecha: fechaSel,
-        turno: turnoSel,
-      }));
-    const combinados = limitarObservaciones([...otros, ...nuevos]);
-    const ok = await saveRegistros(combinados);
+      .map(([colabId, v]) => {
+        const colabIdNum = Number(colabId);
+        return {
+          id: `${claveTurno}_${colabIdNum}`,
+          clave: claveTurno,
+          colabId: colabIdNum,
+          estado: v.estado,
+          obs: v.obs || "",
+          fecha: fechaSel,
+          turno: turnoSel,
+        };
+      });
+
+    const { combinados, idxModificados } = limitarObservaciones([...otrosConId, ...nuevos]);
+
+    let ok = false;
+    if (necesitaMigracion) {
+      // Primera vez: hay que escribir todo una vez para que todos los
+      // registros queden con "id". De ahí en adelante ya no hace falta.
+      ok = await saveRegistros(combinados);
+    } else {
+      // Solo se envían los registros que realmente cambiaron: los de este
+      // turno más los que perdieron su observación por el límite de 3.
+      const idsNuevos = new Set(nuevos.map(r => r.id));
+      const modificados = combinados.filter((r, idx) => idxModificados.has(idx) || idsNuevos.has(r.id));
+      setRegistrosLocal(combinados);
+      try {
+        const data = await backendUpsert("asist-registros", modificados, "id");
+        ok = !!data?.ok;
+      } catch (e) { ok = false; }
+    }
+
     setGuardando(false);
     mostrarToast(ok ? "Asistencia guardada correctamente" : "Error al guardar la asistencia", ok ? "ok" : "error");
   }
