@@ -229,7 +229,36 @@ async function backendSet(key, value) {
     const res = await fetch(APPS_SCRIPT_URL, {
       method: "POST",
       headers: { "Content-Type": "text/plain;charset=utf-8" },
-      body: JSON.stringify({ key, value }),
+      body: JSON.stringify({ modo: "reemplazar", key, value }),
+    });
+    if (!res.ok) throw new Error(`HTTP ${res.status}`);
+    return res.json();
+  });
+}
+
+// Actualiza/agrega SOLO los items indicados (identificados por claveCampo,
+// normalmente "id"), sin reescribir el resto de la hoja. Mucho más rápido
+// que backendSet cuando solo cambia 1 o pocas filas.
+async function backendUpsert(key, items, claveCampo = "id") {
+  return encolarBackend(async () => {
+    const res = await fetch(APPS_SCRIPT_URL, {
+      method: "POST",
+      headers: { "Content-Type": "text/plain;charset=utf-8" },
+      body: JSON.stringify({ modo: "upsert", key, items, claveCampo }),
+    });
+    if (!res.ok) throw new Error(`HTTP ${res.status}`);
+    return res.json();
+  });
+}
+
+// Agrega filas nuevas al final de la hoja, sin tocar las existentes.
+// Pensado para historiales que solo crecen (nunca se editan hacia atrás).
+async function backendAgregar(key, items) {
+  return encolarBackend(async () => {
+    const res = await fetch(APPS_SCRIPT_URL, {
+      method: "POST",
+      headers: { "Content-Type": "text/plain;charset=utf-8" },
+      body: JSON.stringify({ modo: "agregar", key, items }),
     });
     if (!res.ok) throw new Error(`HTTP ${res.status}`);
     return res.json();
@@ -275,7 +304,35 @@ function useSharedList(key) {
     } catch (e) { setError(`Error: ${e?.message}`); return false; }
   }, [key]);
 
-  return [items, save, loading, error];
+  // Actualiza/agrega solo `itemsModificados` (por claveCampo, normalmente "id")
+  // dentro de `newItemsCompleto` (el array completo ya actualizado localmente).
+  // Solo esos items viajan por red — mucho más rápido que `save` para
+  // ediciones pequeñas sobre listas grandes.
+  const saveUpsert = useCallback(async (newItemsCompleto, itemsModificados, claveCampo = "id") => {
+    setItems(newItemsCompleto);
+    ultimoValorCrudo.current = JSON.stringify(newItemsCompleto);
+    try {
+      const data = await backendUpsert(key, itemsModificados, claveCampo);
+      if (!data?.ok) { setError("No se pudo guardar."); return false; }
+      setError(null);
+      return true;
+    } catch (e) { setError(`Error: ${e?.message}`); return false; }
+  }, [key]);
+
+  // Agrega `itemsNuevos` al final (para historiales que solo crecen).
+  // `newItemsCompleto` es el array completo ya actualizado localmente.
+  const saveAgregar = useCallback(async (newItemsCompleto, itemsNuevos) => {
+    setItems(newItemsCompleto);
+    ultimoValorCrudo.current = JSON.stringify(newItemsCompleto);
+    try {
+      const data = await backendAgregar(key, itemsNuevos);
+      if (!data?.ok) { setError("No se pudo guardar."); return false; }
+      setError(null);
+      return true;
+    } catch (e) { setError(`Error: ${e?.message}`); return false; }
+  }, [key]);
+
+  return [items, save, loading, error, saveUpsert, saveAgregar];
 }
 
 // ---------------------------------------------------------------------------
@@ -647,7 +704,7 @@ function PantallaAsistencia({
 // ---------------------------------------------------------------------------
 // PANEL: HISTORIAL DE CAMBIOS DE TURNO
 // ---------------------------------------------------------------------------
-function PanelHistorialTurno({ colaborador, colaboradores, saveColaboradores, historial, saveHistorial, onToast, onClose }) {
+function PanelHistorialTurno({ colaborador, colaboradores, saveColaboradores, saveColaboradoresUpsert, historial, saveHistorial, saveHistorialAgregar, onToast, onClose }) {
   const [turnoNuevo, setTurnoNuevo] = useState(colaborador.turnoActual);
   const [motivo, setMotivo] = useState("");
   const [guardando, setGuardando] = useState(false);
@@ -669,9 +726,10 @@ function PanelHistorialTurno({ colaborador, colaboradores, saveColaboradores, hi
       fecha: today(),
       motivo: motivo.trim(),
     };
-    const okHist = await saveHistorial([nuevoRegistro, ...historial]);
-    const nuevosColab = colaboradores.map(c => c.id === colaborador.id ? { ...c, turnoActual: turnoNuevo } : c);
-    const okColab = await saveColaboradores(nuevosColab);
+    const okHist = await saveHistorialAgregar([nuevoRegistro, ...historial], [nuevoRegistro]);
+    const colaboradorActualizado = { ...colaborador, turnoActual: turnoNuevo };
+    const nuevosColab = colaboradores.map(c => c.id === colaborador.id ? colaboradorActualizado : c);
+    const okColab = await saveColaboradoresUpsert(nuevosColab, [colaboradorActualizado], "id");
     setGuardando(false);
     if (okHist && okColab) {
       setMotivo("");
@@ -1056,15 +1114,17 @@ function ModalComentarioEstado({ colaborador, estadoNuevo, onClose, onConfirm })
   );
 }
 
-function ModalCambioEstadoLote({ colaboradoresSeleccionados, onClose, onConfirm }) {
+function ModalCambioLote({ colaboradoresSeleccionados, onClose, onConfirm }) {
+  const [tipoCambio, setTipoCambio] = useState("estado"); // "estado" | "turno"
   const [estadoNuevo, setEstadoNuevo] = useState("activo");
+  const [turnoNuevo, setTurnoNuevo] = useState("T1");
   const [comentario, setComentario] = useState("");
   const [guardando, setGuardando] = useState(false);
 
   async function confirmar() {
     if (comentario.trim().length === 0) return;
     setGuardando(true);
-    await onConfirm(estadoNuevo, comentario.trim());
+    await onConfirm(tipoCambio, tipoCambio === "estado" ? estadoNuevo : turnoNuevo, comentario.trim());
     setGuardando(false);
   }
 
@@ -1072,7 +1132,7 @@ function ModalCambioEstadoLote({ colaboradoresSeleccionados, onClose, onConfirm 
     <div className="fixed inset-0 z-50 bg-black/40 flex items-center justify-center p-4" onClick={onClose}>
       <div onClick={e => e.stopPropagation()} className="bg-white rounded-2xl w-full max-w-md p-6 space-y-4 shadow-xl max-h-[85vh] overflow-y-auto">
         <div className="flex items-center justify-between">
-          <h2 className="font-semibold text-slate-900">Cambiar estado a {colaboradoresSeleccionados.length} colaborador(es)</h2>
+          <h2 className="font-semibold text-slate-900">Cambio en lote — {colaboradoresSeleccionados.length} colaborador(es)</h2>
           <button onClick={onClose} className="p-1 rounded-lg hover:bg-slate-100"><XIcon size={18} /></button>
         </div>
 
@@ -1082,28 +1142,63 @@ function ModalCambioEstadoLote({ colaboradoresSeleccionados, onClose, onConfirm 
           ))}
         </div>
 
-        <div>
-          <label className="text-xs text-slate-500 mb-1.5 block">Nuevo estado</label>
-          <div className="flex flex-wrap gap-1.5">
-            {OPCIONES_JEFE.map(o => (
-              <button
-                key={o.key}
-                onClick={() => setEstadoNuevo(o.key)}
-                className={`rounded-lg px-2.5 py-1.5 text-[11px] font-medium border transition
-                  ${estadoNuevo === o.key ? `${o.bg} text-white border-transparent` : `${o.light} hover:opacity-80`}`}
-              >
-                {o.label}
-              </button>
-            ))}
-          </div>
+        <div className="flex bg-slate-100 rounded-xl p-1 gap-1">
+          <button
+            onClick={() => setTipoCambio("estado")}
+            className={`flex-1 rounded-lg py-1.5 text-xs font-medium transition ${tipoCambio === "estado" ? "bg-white text-slate-900 shadow-sm" : "text-slate-500"}`}
+          >
+            Cambiar estado laboral
+          </button>
+          <button
+            onClick={() => setTipoCambio("turno")}
+            className={`flex-1 rounded-lg py-1.5 text-xs font-medium transition ${tipoCambio === "turno" ? "bg-white text-slate-900 shadow-sm" : "text-slate-500"}`}
+          >
+            Cambiar turno
+          </button>
         </div>
+
+        {tipoCambio === "estado" ? (
+          <div>
+            <label className="text-xs text-slate-500 mb-1.5 block">Nuevo estado</label>
+            <div className="flex flex-wrap gap-1.5">
+              {OPCIONES_JEFE.map(o => (
+                <button
+                  key={o.key}
+                  onClick={() => setEstadoNuevo(o.key)}
+                  className={`rounded-lg px-2.5 py-1.5 text-[11px] font-medium border transition
+                    ${estadoNuevo === o.key ? `${o.bg} text-white border-transparent` : `${o.light} hover:opacity-80`}`}
+                >
+                  {o.label}
+                </button>
+              ))}
+            </div>
+          </div>
+        ) : (
+          <div>
+            <label className="text-xs text-slate-500 mb-1.5 block">Nuevo turno</label>
+            <div className="flex gap-1.5">
+              {TURNOS.map(t => (
+                <button
+                  key={t.key}
+                  onClick={() => setTurnoNuevo(t.key)}
+                  className={`flex-1 rounded-lg py-2 text-xs font-medium border flex items-center justify-center gap-1.5 transition
+                    ${turnoNuevo === t.key ? "bg-slate-900 text-white border-slate-900" : "bg-white text-slate-600 border-slate-200 hover:bg-slate-50"}`}
+                >
+                  <t.Icon size={14} /> {t.label}
+                </button>
+              ))}
+            </div>
+          </div>
+        )}
 
         <div>
           <textarea
             autoFocus
             value={comentario}
             onChange={e => setComentario(e.target.value)}
-            placeholder="Comentario del cambio (obligatorio, ej: 'Inicio temporada 2026/27')"
+            placeholder={tipoCambio === "estado"
+              ? "Comentario del cambio (obligatorio, ej: 'Inicio temporada 2026/27')"
+              : "Motivo del cambio de turno (obligatorio)"}
             rows={3}
             className={inputBase}
           />
@@ -1235,7 +1330,12 @@ function ModalNuevoColaborador({ colaboradores, saveColaboradores, onToast, onCl
   );
 }
 
-function PantallaEstadoLaboral({ colaboradores, saveColaboradores, historialEstado, saveHistorialEstado, notas, saveNotas, onToast, onIrHistorialPersona }) {
+function PantallaEstadoLaboral({
+  colaboradores, saveColaboradores, saveColaboradoresUpsert,
+  historialEstado, saveHistorialEstado, saveHistorialEstadoAgregar,
+  historialTurnos, saveHistorial, saveHistorialAgregar,
+  notas, saveNotas, onToast, onIrHistorialPersona,
+}) {
   const [filtro, setFiltro] = useState("Todos");
   const [busqueda, setBusqueda] = useState("");
   const [editandoCasillero, setEditandoCasillero] = useState(null);
@@ -1260,8 +1360,10 @@ function PantallaEstadoLaboral({ colaboradores, saveColaboradores, historialEsta
 
   async function confirmarCambioEstado(comentario) {
     const { colaborador, estadoNuevo } = pendingCambio;
-    const nuevos = colaboradores.map(c => c.id === colaborador.id ? { ...c, estadoJefe: estadoNuevo } : c);
-    const okColab = await saveColaboradores(nuevos);
+    const colaboradorActualizado = { ...colaborador, estadoJefe: estadoNuevo };
+    const nuevos = colaboradores.map(c => c.id === colaborador.id ? colaboradorActualizado : c);
+    const okColab = await saveColaboradoresUpsert(nuevos, [colaboradorActualizado], "id");
+
     const registro = {
       id: Date.now(),
       colabId: colaborador.id,
@@ -1270,7 +1372,7 @@ function PantallaEstadoLaboral({ colaboradores, saveColaboradores, historialEsta
       fecha: today(),
       comentario,
     };
-    const okHist = await saveHistorialEstado([registro, ...historialEstado]);
+    const okHist = await saveHistorialEstadoAgregar([registro, ...historialEstado], [registro]);
 
     if (okColab && okHist) {
       const opcionNueva = OPCIONES_JEFE.find(o => o.key === estadoNuevo);
@@ -1303,51 +1405,81 @@ function PantallaEstadoLaboral({ colaboradores, saveColaboradores, historialEsta
     });
   }
 
-  async function confirmarCambioLote(estadoNuevo, comentario) {
+  async function confirmarCambioLote(tipoCambio, valorNuevo, comentario) {
     const idsSeleccionados = Array.from(seleccionados);
     const colaboradoresSeleccionados = colaboradores.filter(c => idsSeleccionados.includes(c.id));
 
-    const nuevos = colaboradores.map(c =>
-      idsSeleccionados.includes(c.id) ? { ...c, estadoJefe: estadoNuevo } : c
-    );
-    const okColab = await saveColaboradores(nuevos);
+    if (tipoCambio === "estado") {
+      const colaboradoresActualizados = colaboradoresSeleccionados.map(c => ({ ...c, estadoJefe: valorNuevo }));
+      const nuevos = colaboradores.map(c =>
+        idsSeleccionados.includes(c.id) ? colaboradoresActualizados.find(a => a.id === c.id) : c
+      );
+      const okColab = await saveColaboradoresUpsert(nuevos, colaboradoresActualizados, "id");
 
-    const nuevosRegistrosHistorial = colaboradoresSeleccionados.map((c, i) => ({
-      id: Date.now() + i,
-      colabId: c.id,
-      estadoAnterior: c.estadoJefe,
-      estadoNuevo,
-      fecha: today(),
-      comentario,
-    }));
-    const okHist = await saveHistorialEstado([...nuevosRegistrosHistorial, ...historialEstado]);
+      const nuevosRegistrosHistorial = colaboradoresSeleccionados.map((c, i) => ({
+        id: Date.now() + i,
+        colabId: c.id,
+        estadoAnterior: c.estadoJefe,
+        estadoNuevo: valorNuevo,
+        fecha: today(),
+        comentario,
+      }));
+      const okHist = await saveHistorialEstadoAgregar([...nuevosRegistrosHistorial, ...historialEstado], nuevosRegistrosHistorial);
 
-    const opcionNueva = OPCIONES_JEFE.find(o => o.key === estadoNuevo);
-    onToast(
-      okColab && okHist
-        ? `${colaboradoresSeleccionados.length} colaborador(es) pasaron a "${opcionNueva?.label}"`
-        : "Error al actualizar en lote",
-      okColab && okHist ? "ok" : "error"
-    );
+      const opcionNueva = OPCIONES_JEFE.find(o => o.key === valorNuevo);
+      onToast(
+        okColab && okHist
+          ? `${colaboradoresSeleccionados.length} colaborador(es) pasaron a "${opcionNueva?.label}"`
+          : "Error al actualizar en lote",
+        okColab && okHist ? "ok" : "error"
+      );
+    } else {
+      const colaboradoresActualizados = colaboradoresSeleccionados.map(c => ({ ...c, turnoActual: valorNuevo }));
+      const nuevos = colaboradores.map(c =>
+        idsSeleccionados.includes(c.id) ? colaboradoresActualizados.find(a => a.id === c.id) : c
+      );
+      const okColab = await saveColaboradoresUpsert(nuevos, colaboradoresActualizados, "id");
+
+      const nuevosRegistrosTurno = colaboradoresSeleccionados.map((c, i) => ({
+        id: Date.now() + i,
+        colabId: c.id,
+        turnoAnterior: c.turnoActual,
+        turnoNuevo: valorNuevo,
+        fecha: today(),
+        motivo: comentario,
+      }));
+      const okHist = await saveHistorialAgregar([...nuevosRegistrosTurno, ...historialTurnos], nuevosRegistrosTurno);
+
+      const turnoLabel = TURNOS.find(t => t.key === valorNuevo)?.label;
+      onToast(
+        okColab && okHist
+          ? `${colaboradoresSeleccionados.length} colaborador(es) pasaron a "${turnoLabel}"`
+          : "Error al actualizar en lote",
+        okColab && okHist ? "ok" : "error"
+      );
+    }
     setSeleccionados(new Set());
     setMostrarCambioLote(false);
   }
 
   async function guardarCasillero(id) {
-    const nuevos = colaboradores.map(c => c.id === id ? { ...c, casillero: casilleroTmp } : c);
-    await saveColaboradores(nuevos);
+    const actualizado = { ...colaboradores.find(c => c.id === id), casillero: casilleroTmp };
+    const nuevos = colaboradores.map(c => c.id === id ? actualizado : c);
+    await saveColaboradoresUpsert(nuevos, [actualizado], "id");
     setEditandoCasillero(null);
   }
 
   async function guardarRol(id, rol) {
-    const nuevos = colaboradores.map(c => c.id === id ? { ...c, rol } : c);
-    await saveColaboradores(nuevos);
+    const actualizado = { ...colaboradores.find(c => c.id === id), rol };
+    const nuevos = colaboradores.map(c => c.id === id ? actualizado : c);
+    await saveColaboradoresUpsert(nuevos, [actualizado], "id");
     setEditandoRol(null);
   }
 
   async function guardarArea(id, area) {
-    const nuevos = colaboradores.map(c => c.id === id ? { ...c, area } : c);
-    await saveColaboradores(nuevos);
+    const actualizado = { ...colaboradores.find(c => c.id === id), area };
+    const nuevos = colaboradores.map(c => c.id === id ? actualizado : c);
+    await saveColaboradoresUpsert(nuevos, [actualizado], "id");
     setEditandoArea(null);
   }
 
@@ -1716,7 +1848,7 @@ function PantallaEstadoLaboral({ colaboradores, saveColaboradores, historialEsta
       )}
 
       {mostrarCambioLote && (
-        <ModalCambioEstadoLote
+        <ModalCambioLote
           colaboradoresSeleccionados={colaboradores.filter(c => seleccionados.has(c.id))}
           onClose={() => setMostrarCambioLote(false)}
           onConfirm={confirmarCambioLote}
@@ -1906,11 +2038,11 @@ function PantallaHistorialPorPersona({ colaboradores, registros, historialTurnos
 // APP PRINCIPAL
 // ---------------------------------------------------------------------------
 function AsistenciaApp() {
-  const [colaboradores, saveColaboradores, loadingColab, errorColab] = useSharedList("asist-colaboradores");
-  const [registros, saveRegistros, loadingReg, errorReg] = useSharedList("asist-registros");
-  const [historialTurnos, saveHistorial, loadingHist, errorHist] = useSharedList("asist-turnos-historial");
-  const [historialEstado, saveHistorialEstado, loadingHistEstado, errorHistEstado] = useSharedList("asist-historial-estado");
-  const [notas, saveNotas, loadingNotas, errorNotas] = useSharedList("asist-notas");
+  const [colaboradores, saveColaboradores, loadingColab, errorColab, saveColaboradoresUpsert] = useSharedList("asist-colaboradores");
+  const [registros, saveRegistros, loadingReg, errorReg, saveRegistrosUpsert] = useSharedList("asist-registros");
+  const [historialTurnos, saveHistorial, loadingHist, errorHist, saveHistorialUpsert, saveHistorialAgregar] = useSharedList("asist-turnos-historial");
+  const [historialEstado, saveHistorialEstado, loadingHistEstado, errorHistEstado, saveHistorialEstadoUpsert, saveHistorialEstadoAgregar] = useSharedList("asist-historial-estado");
+  const [notas, saveNotas, loadingNotas, errorNotas, saveNotasUpsert, saveNotasAgregar] = useSharedList("asist-notas");
   const errorConexion = errorColab || errorReg || errorHist || errorHistEstado || errorNotas;
 
   const [vista, setVista] = useState("asistencia");
@@ -2052,8 +2184,13 @@ function AsistenciaApp() {
             <PantallaEstadoLaboral
               colaboradores={colaboradores}
               saveColaboradores={saveColaboradores}
+              saveColaboradoresUpsert={saveColaboradoresUpsert}
               historialEstado={historialEstado}
               saveHistorialEstado={saveHistorialEstado}
+              saveHistorialEstadoAgregar={saveHistorialEstadoAgregar}
+              historialTurnos={historialTurnos}
+              saveHistorial={saveHistorial}
+              saveHistorialAgregar={saveHistorialAgregar}
               notas={notas}
               saveNotas={saveNotas}
               onToast={mostrarToast}
@@ -2078,8 +2215,10 @@ function AsistenciaApp() {
           colaborador={colabHistorial}
           colaboradores={colaboradores}
           saveColaboradores={saveColaboradores}
+          saveColaboradoresUpsert={saveColaboradoresUpsert}
           historial={historialTurnos}
           saveHistorial={saveHistorial}
+          saveHistorialAgregar={saveHistorialAgregar}
           onToast={mostrarToast}
           onClose={() => setColabHistorial(null)}
         />
