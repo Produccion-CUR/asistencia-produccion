@@ -58,6 +58,7 @@ const Pencil = (p) => <Icon {...p}><path d="M12 20h9" /><path d="M16.5 3.5a2.1 2
 const LayoutGrid = (p) => <Icon {...p}><rect x="3" y="3" width="8" height="8" rx="1.5" /><rect x="13" y="3" width="8" height="8" rx="1.5" /><rect x="3" y="13" width="8" height="8" rx="1.5" /><rect x="13" y="13" width="8" height="8" rx="1.5" /></Icon>;
 const Flag = (p) => <Icon {...p}><path d="M5 3v18" /><path d="M5 4h11l-2 4 2 4H5" /></Icon>;
 const Plus = (p) => <Icon {...p}><path d="M12 5v14M5 12h14" /></Icon>;
+const AlertTriangle = (p) => <Icon {...p}><path d="M12 3l10 18H2L12 3z" /><path d="M12 10v4M12 17h.01" /></Icon>;
 
 // ---------------------------------------------------------------------------
 // CONSTANTES
@@ -916,6 +917,16 @@ function PantallaIndicadores({ colaboradores, registros }) {
     [statsPersona]
   );
 
+  // Cumplimiento RRHH: de las personas marcadas "No Volver a Llamar", ¿cuántas
+  // igual quedaron Activas? Eso es una recontratación en contra de la recomendación.
+  const cumplimientoRRHH = useMemo(() => {
+    const marcadosNoVolver = colaboradores.filter(c => (c.recomendacion || "").toLowerCase().includes("no volver"));
+    const incumplimientos = marcadosNoVolver.filter(c => c.estadoJefe === "activo");
+    const total = marcadosNoVolver.length;
+    const pctCumplimiento = total ? Math.round(((total - incumplimientos.length) / total) * 100) : 100;
+    return { total, incumplimientos, pctCumplimiento };
+  }, [colaboradores]);
+
   // Conteo A/F/L/V para un conjunto de registros
   function contar(regs) {
     const c = { A: 0, F: 0, L: 0, V: 0 };
@@ -980,6 +991,45 @@ function PantallaIndicadores({ colaboradores, registros }) {
 
   return (
     <div className="space-y-5">
+      <Card className={cumplimientoRRHH.incumplimientos.length > 0 ? "border-red-200 bg-red-50" : ""}>
+        <div className="flex items-center justify-between flex-wrap gap-3">
+          <div>
+            <p className="text-sm font-medium text-slate-900 flex items-center gap-2">
+              <AlertTriangle size={16} className={cumplimientoRRHH.incumplimientos.length > 0 ? "text-red-600" : "text-slate-400"} />
+              Cumplimiento de recomendación "No Volver a Llamar"
+            </p>
+            <p className="text-xs text-slate-500 mt-0.5">
+              {cumplimientoRRHH.total} persona(s) marcada(s) "No Volver a Llamar" en total.
+            </p>
+          </div>
+          <span className={`text-xl font-bold shrink-0 ${cumplimientoRRHH.pctCumplimiento === 100 ? "text-emerald-600" : "text-red-600"}`}>
+            {cumplimientoRRHH.pctCumplimiento}%
+          </span>
+        </div>
+
+        {cumplimientoRRHH.incumplimientos.length > 0 && (
+          <div className="mt-3 pt-3 border-t border-red-200">
+            <p className="text-xs font-medium text-red-700 mb-2">
+              {cumplimientoRRHH.incumplimientos.length} persona(s) están "Activas" a pesar de estar marcadas "No Volver a Llamar":
+            </p>
+            <div className="space-y-1.5">
+              {cumplimientoRRHH.incumplimientos.map(c => (
+                <div key={c.id} className="flex items-center gap-2.5 text-xs">
+                  <div className="w-6 h-6 rounded-full bg-red-100 text-red-700 flex items-center justify-center text-[10px] font-semibold shrink-0">
+                    {iniciales(nombreCompleto(c))}
+                  </div>
+                  <span className="text-slate-800 font-medium">{nombreCompleto(c)}</span>
+                  <span className="text-slate-400">{c.area} · {c.rut}</span>
+                </div>
+              ))}
+            </div>
+          </div>
+        )}
+        {cumplimientoRRHH.total === 0 && (
+          <p className="text-xs text-slate-400 mt-2">Aún no hay nadie marcado "No Volver a Llamar" para medir.</p>
+        )}
+      </Card>
+
       <Card className="flex flex-wrap items-center gap-4 justify-between">
         <div className="flex items-center gap-2">
           <CalendarDays size={16} className="text-slate-400" />
@@ -1164,16 +1214,20 @@ function ModalComentarioEstado({ colaborador, estadoNuevo, onClose, onConfirm })
 }
 
 function ModalCambioLote({ colaboradoresSeleccionados, onClose, onConfirm }) {
-  const [tipoCambio, setTipoCambio] = useState("estado"); // "estado" | "turno"
+  const [tipoCambio, setTipoCambio] = useState("estado"); // "estado" | "turno" | "recomendacion"
   const [estadoNuevo, setEstadoNuevo] = useState("activo");
   const [turnoNuevo, setTurnoNuevo] = useState("T1");
+  const [recomendacionNueva, setRecomendacionNueva] = useState("Volver a Llamar");
   const [comentario, setComentario] = useState("");
   const [guardando, setGuardando] = useState(false);
 
+  const requiereComentario = tipoCambio !== "recomendacion";
+
   async function confirmar() {
-    if (comentario.trim().length === 0) return;
+    if (requiereComentario && comentario.trim().length === 0) return;
     setGuardando(true);
-    await onConfirm(tipoCambio, tipoCambio === "estado" ? estadoNuevo : turnoNuevo, comentario.trim());
+    const valor = tipoCambio === "estado" ? estadoNuevo : tipoCambio === "turno" ? turnoNuevo : recomendacionNueva;
+    await onConfirm(tipoCambio, valor, comentario.trim());
     setGuardando(false);
   }
 
@@ -1194,19 +1248,25 @@ function ModalCambioLote({ colaboradoresSeleccionados, onClose, onConfirm }) {
         <div className="flex bg-slate-100 rounded-xl p-1 gap-1">
           <button
             onClick={() => setTipoCambio("estado")}
-            className={`flex-1 rounded-lg py-1.5 text-xs font-medium transition ${tipoCambio === "estado" ? "bg-white text-slate-900 shadow-sm" : "text-slate-500"}`}
+            className={`flex-1 rounded-lg py-1.5 text-[11px] font-medium transition ${tipoCambio === "estado" ? "bg-white text-slate-900 shadow-sm" : "text-slate-500"}`}
           >
-            Cambiar estado laboral
+            Estado laboral
           </button>
           <button
             onClick={() => setTipoCambio("turno")}
-            className={`flex-1 rounded-lg py-1.5 text-xs font-medium transition ${tipoCambio === "turno" ? "bg-white text-slate-900 shadow-sm" : "text-slate-500"}`}
+            className={`flex-1 rounded-lg py-1.5 text-[11px] font-medium transition ${tipoCambio === "turno" ? "bg-white text-slate-900 shadow-sm" : "text-slate-500"}`}
           >
-            Cambiar turno
+            Turno
+          </button>
+          <button
+            onClick={() => setTipoCambio("recomendacion")}
+            className={`flex-1 rounded-lg py-1.5 text-[11px] font-medium transition ${tipoCambio === "recomendacion" ? "bg-white text-slate-900 shadow-sm" : "text-slate-500"}`}
+          >
+            Recomendación
           </button>
         </div>
 
-        {tipoCambio === "estado" ? (
+        {tipoCambio === "estado" && (
           <div>
             <label className="text-xs text-slate-500 mb-1.5 block">Nuevo estado</label>
             <div className="flex flex-wrap gap-1.5">
@@ -1222,7 +1282,9 @@ function ModalCambioLote({ colaboradoresSeleccionados, onClose, onConfirm }) {
               ))}
             </div>
           </div>
-        ) : (
+        )}
+
+        {tipoCambio === "turno" && (
           <div>
             <label className="text-xs text-slate-500 mb-1.5 block">Nuevo turno</label>
             <div className="flex gap-1.5">
@@ -1240,23 +1302,46 @@ function ModalCambioLote({ colaboradoresSeleccionados, onClose, onConfirm }) {
           </div>
         )}
 
-        <div>
-          <textarea
-            autoFocus
-            value={comentario}
-            onChange={e => setComentario(e.target.value)}
-            placeholder={tipoCambio === "estado"
-              ? "Comentario del cambio (obligatorio, ej: 'Inicio temporada 2026/27')"
-              : "Motivo del cambio de turno (obligatorio)"}
-            rows={3}
-            className={inputBase}
-          />
-          <p className="text-xs text-slate-400 mt-1">Este comentario quedará en el historial de cada persona seleccionada.</p>
-        </div>
+        {tipoCambio === "recomendacion" && (
+          <div>
+            <label className="text-xs text-slate-500 mb-1.5 block">Nueva recomendación</label>
+            <div className="flex flex-wrap gap-1.5">
+              {["Volver a Llamar", "No Volver a Llamar", "Sin recomendación"].map(r => (
+                <button
+                  key={r}
+                  onClick={() => setRecomendacionNueva(r === "Sin recomendación" ? "" : r)}
+                  className={`rounded-lg px-2.5 py-1.5 text-[11px] font-medium border transition
+                    ${recomendacionNueva === (r === "Sin recomendación" ? "" : r)
+                      ? "bg-sky-600 text-white border-transparent"
+                      : "bg-sky-50 text-sky-700 border-sky-100 hover:opacity-80"}`}
+                >
+                  {r}
+                </button>
+              ))}
+            </div>
+            <p className="text-xs text-slate-400 mt-2">Este cambio no queda en el historial de la persona, solo actualiza el dato.</p>
+          </div>
+        )}
+
+        {requiereComentario && (
+          <div>
+            <textarea
+              autoFocus
+              value={comentario}
+              onChange={e => setComentario(e.target.value)}
+              placeholder={tipoCambio === "estado"
+                ? "Comentario del cambio (obligatorio, ej: 'Inicio temporada 2026/27')"
+                : "Motivo del cambio de turno (obligatorio)"}
+              rows={3}
+              className={inputBase}
+            />
+            <p className="text-xs text-slate-400 mt-1">Este comentario quedará en el historial de cada persona seleccionada.</p>
+          </div>
+        )}
 
         <button
           onClick={confirmar}
-          disabled={guardando || comentario.trim().length === 0}
+          disabled={guardando || (requiereComentario && comentario.trim().length === 0)}
           className="w-full rounded-xl bg-slate-900 text-white py-2.5 text-sm font-medium disabled:opacity-50 hover:bg-slate-800 flex items-center justify-center gap-2"
         >
           {guardando ? <Loader2 size={16} className="animate-spin" /> : <Check size={16} />}
@@ -1386,6 +1471,7 @@ function PantallaEstadoLaboral({
   notas, saveNotas, onToast, onIrHistorialPersona,
 }) {
   const [filtro, setFiltro] = useState("Todos");
+  const [filtroRecomendacion, setFiltroRecomendacion] = useState("Todas");
   const [busqueda, setBusqueda] = useState("");
   const [editandoCasillero, setEditandoCasillero] = useState(null);
   const [casilleroTmp, setCasilleroTmp] = useState("");
@@ -1399,13 +1485,21 @@ function PantallaEstadoLaboral({
   const [mostrarCambioLote, setMostrarCambioLote] = useState(false);
   const fileInputRef = useRef(null);
 
+  function coincideRecomendacion(c) {
+    const rec = (c.recomendacion || "").trim();
+    if (filtroRecomendacion === "Todas") return true;
+    if (filtroRecomendacion === "Sin recomendación") return rec === "";
+    return rec.toLowerCase() === filtroRecomendacion.toLowerCase();
+  }
+
   const lista = useMemo(() => {
     const q = busqueda.trim().toLowerCase();
     return colaboradores
       .filter(c => filtro === "Todos" || c.estadoJefe === filtro)
+      .filter(coincideRecomendacion)
       .filter(c => !q || nombreCompleto(c).toLowerCase().includes(q) || (c.rut && c.rut.toLowerCase().includes(q)))
       .sort((a, b) => nombreCompleto(a).localeCompare(nombreCompleto(b)));
-  }, [colaboradores, filtro, busqueda]);
+  }, [colaboradores, filtro, filtroRecomendacion, busqueda]);
 
   async function confirmarCambioEstado(comentario) {
     const { colaborador, estadoNuevo } = pendingCambio;
@@ -1503,7 +1597,7 @@ function PantallaEstadoLaboral({
           : "Error al actualizar en lote",
         ok ? "ok" : "error"
       );
-    } else {
+    } else if (tipoCambio === "turno") {
       const colaboradoresActualizados = colaboradoresSeleccionados.map(c => ({ ...c, turnoActual: valorNuevo }));
       const nuevosColab = colaboradores.map(c =>
         idsSeleccionados.includes(c.id) ? colaboradoresActualizados.find(a => a.id === c.id) : c
@@ -1532,6 +1626,20 @@ function PantallaEstadoLaboral({
       onToast(
         ok
           ? `${colaboradoresSeleccionados.length} colaborador(es) pasaron a "${turnoLabel}"`
+          : "Error al actualizar en lote",
+        ok ? "ok" : "error"
+      );
+    } else {
+      // recomendacion: solo actualiza el dato, no queda en el historial.
+      const colaboradoresActualizados = colaboradoresSeleccionados.map(c => ({ ...c, recomendacion: valorNuevo }));
+      const nuevosColab = colaboradores.map(c =>
+        idsSeleccionados.includes(c.id) ? colaboradoresActualizados.find(a => a.id === c.id) : c
+      );
+      setColaboradoresLocal(nuevosColab);
+      ok = await saveColaboradoresUpsert(nuevosColab, colaboradoresActualizados, "id");
+      onToast(
+        ok
+          ? `${colaboradoresSeleccionados.length} colaborador(es) actualizados a "${valorNuevo || "Sin recomendación"}"`
           : "Error al actualizar en lote",
         ok ? "ok" : "error"
       );
@@ -1600,34 +1708,50 @@ function PantallaEstadoLaboral({
         let omitidosPorNombre = 0;
 
         filas.forEach(fila => {
-          const nombre = fila.nombre || fila.name || "";
-          if (!nombre) return;
-          const apellidoPaterno = fila.apellido_paterno || fila["apellido paterno"] || fila.appaterno || "";
-          const apellidoMaterno = fila.apellido_materno || fila["apellido materno"] || fila.apmaterno || "";
           const rut = normalizarRut(fila.rut || fila.run || "");
-          const nombreCompletoFila = [nombre, apellidoPaterno, apellidoMaterno].filter(Boolean).join(" ");
-
-          const turnoRaw = (fila.turno || fila.turnoactual || "T1").toUpperCase();
-          const turnoActual = TURNOS.some(t => t.key === turnoRaw) ? turnoRaw : "T1";
-          const areaRaw = fila.area || AREAS[0];
-          const area = AREAS.find(a => a.toLowerCase() === areaRaw.toLowerCase()) || areaRaw;
-          const rol = normalizarRolImportado(fila.rol || fila.role || fila.cargo);
-          const estadoJefe = normalizarEstadoLaboralImportado(fila.estadolaboral || fila["estado laboral"] || fila.estado_laboral);
-          const casillero = fila.casillero || "";
+          const nombreCsv = (fila.nombre || fila.name || "").trim();
+          const apellidoPaternoCsv = (fila.apellido_paterno || fila["apellido paterno"] || fila.appaterno || "").trim();
+          const apellidoMaternoCsv = (fila.apellido_materno || fila["apellido materno"] || fila.apmaterno || "").trim();
+          const areaCsv = (fila.area || "").trim();
+          const rolCsv = (fila.rol || fila.role || fila.cargo || "").trim();
+          const turnoCsv = (fila.turno || fila.turnoactual || "").trim();
+          const estadoCsv = (fila.estadolaboral || fila["estado laboral"] || fila.estado_laboral || "").trim();
+          const casilleroCsv = (fila.casillero || "").trim();
           const recomendacion = (fila.recomendacion_bd_dotacion || fila["recomendacion bd dotacion"] || fila.recomendacion || "").trim();
 
           const existente = rut ? colabPorRut.get(rut) : null;
 
           if (existente) {
-            const actualizado = { ...existente, nombre, apellidoPaterno, apellidoMaterno, area, rol, turnoActual, estadoJefe, casillero, rut, recomendacion };
+            // Actualización: solo se cambian los campos que vienen con contenido en
+            // el archivo. Si una columna viene vacía, se conserva el valor actual.
+            const actualizado = {
+              ...existente,
+              nombre: nombreCsv || existente.nombre,
+              apellidoPaterno: apellidoPaternoCsv || existente.apellidoPaterno,
+              apellidoMaterno: apellidoMaternoCsv || existente.apellidoMaterno,
+              area: areaCsv ? (AREAS.find(a => a.toLowerCase() === areaCsv.toLowerCase()) || areaCsv) : existente.area,
+              rol: rolCsv ? normalizarRolImportado(rolCsv) : existente.rol,
+              turnoActual: turnoCsv ? (TURNOS.some(t => t.key === turnoCsv.toUpperCase()) ? turnoCsv.toUpperCase() : existente.turnoActual) : existente.turnoActual,
+              estadoJefe: estadoCsv ? normalizarEstadoLaboralImportado(estadoCsv) : existente.estadoJefe,
+              casillero: casilleroCsv || existente.casillero,
+              recomendacion: recomendacion || existente.recomendacion || "",
+            };
             actualizables.push({ existente, actualizado });
             return;
           }
 
+          // Colaborador nuevo: para este sí hace falta al menos el nombre.
+          if (!nombreCsv) return;
+          const nombreCompletoFila = [nombreCsv, apellidoPaternoCsv, apellidoMaternoCsv].filter(Boolean).join(" ");
           if (!rut && existentesNombres.has(nombreCompletoFila.trim().toLowerCase())) { omitidosPorNombre++; return; }
 
+          const turnoActual = TURNOS.some(t => t.key === turnoCsv.toUpperCase()) ? turnoCsv.toUpperCase() : "T1";
+          const area = areaCsv ? (AREAS.find(a => a.toLowerCase() === areaCsv.toLowerCase()) || areaCsv) : AREAS[0];
+          const rol = normalizarRolImportado(rolCsv);
+          const estadoJefe = normalizarEstadoLaboralImportado(estadoCsv);
+
           const nuevoId = siguienteId++;
-          nuevos.push({ id: nuevoId, rut, nombre, apellidoPaterno, apellidoMaterno, area, rol, turnoActual, estadoJefe, casillero, recomendacion });
+          nuevos.push({ id: nuevoId, rut, nombre: nombreCsv, apellidoPaterno: apellidoPaternoCsv, apellidoMaterno: apellidoMaternoCsv, area, rol, turnoActual, estadoJefe, casillero: casilleroCsv, recomendacion });
           existentesNombres.add(nombreCompletoFila.trim().toLowerCase());
         });
 
@@ -1662,10 +1786,7 @@ function PantallaEstadoLaboral({
   async function aplicarActualizacion() {
     if (!previewImportacion) return;
     const { actualizables } = previewImportacion;
-    const colaboradoresActualizados = actualizables.map(({ actualizado }) => {
-      const { recomendacion, ...limpio } = actualizado;
-      return limpio;
-    });
+    const colaboradoresActualizados = actualizables.map(({ actualizado }) => actualizado);
     const colaboradoresFinal = colaboradores.map(c => {
       const encontrado = colaboradoresActualizados.find(a => a.id === c.id);
       return encontrado || c;
@@ -1791,6 +1912,20 @@ function PantallaEstadoLaboral({
         })}
       </div>
 
+      <div className="flex items-center gap-2 flex-wrap">
+        <span className="text-xs text-slate-500">Recomendación:</span>
+        {["Todas", "Volver a Llamar", "No Volver a Llamar", "Sin recomendación"].map(f => (
+          <button
+            key={f}
+            onClick={() => setFiltroRecomendacion(f)}
+            className={`rounded-full px-3 py-1.5 text-xs font-medium border
+              ${filtroRecomendacion === f ? "bg-sky-600 text-white border-sky-600" : "bg-white text-slate-600 border-slate-200 hover:bg-slate-50"}`}
+          >
+            {f}
+          </button>
+        ))}
+      </div>
+
       {seleccionados.size > 0 && (
         <div className="flex items-center justify-between gap-3 bg-indigo-50 border border-indigo-200 rounded-xl px-4 py-2.5">
           <span className="text-sm text-indigo-900 font-medium">{seleccionados.size} colaborador(es) seleccionado(s)</span>
@@ -1823,6 +1958,7 @@ function PantallaEstadoLaboral({
               <th className="px-4 py-3 font-medium">Turno</th>
               <th className="px-4 py-3 font-medium">Casillero</th>
               <th className="px-4 py-3 font-medium">Estado laboral</th>
+              <th className="px-4 py-3 font-medium">Recomendación</th>
             </tr>
           </thead>
           <tbody>
@@ -1930,10 +2066,15 @@ function PantallaEstadoLaboral({
                     })}
                   </div>
                 </td>
+                <td className="px-4 py-3">
+                  {c.recomendacion
+                    ? <span className={`text-xs font-medium rounded-full px-2 py-0.5 ${c.recomendacion.toLowerCase().includes("no") ? "bg-red-100 text-red-700" : "bg-sky-100 text-sky-700"}`}>{c.recomendacion}</span>
+                    : <span className="text-xs text-slate-300">—</span>}
+                </td>
               </tr>
             ))}
             {lista.length === 0 && (
-              <tr><td colSpan={7} className="px-4 py-10 text-center text-slate-400">No hay colaboradores en este estado.</td></tr>
+              <tr><td colSpan={8} className="px-4 py-10 text-center text-slate-400">No hay colaboradores en este estado.</td></tr>
             )}
           </tbody>
         </table>
