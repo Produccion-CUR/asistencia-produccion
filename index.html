@@ -1382,7 +1382,7 @@ function PantallaEstadoLaboral({
   const [editandoArea, setEditandoArea] = useState(null);
   const [pendingCambio, setPendingCambio] = useState(null); // { colaborador, estadoNuevo }
   const [importando, setImportando] = useState(false);
-  const [actualizarExistentes, setActualizarExistentes] = useState(false);
+  const [previewImportacion, setPreviewImportacion] = useState(null);
   const [mostrarNuevoColaborador, setMostrarNuevoColaborador] = useState(false);
   const [seleccionados, setSeleccionados] = useState(new Set());
   const [mostrarCambioLote, setMostrarCambioLote] = useState(false);
@@ -1575,7 +1575,7 @@ function PantallaEstadoLaboral({
     if (!archivo) return;
     setImportando(true);
     const reader = new FileReader();
-    reader.onload = async (ev) => {
+    reader.onload = (ev) => {
       try {
         const filas = parseCSV(String(ev.target.result));
         const colabPorRut = new Map(
@@ -1584,9 +1584,9 @@ function PantallaEstadoLaboral({
         const existentesNombres = new Set(colaboradores.map(c => nombreCompleto(c).trim().toLowerCase()));
         let siguienteId = colaboradores.reduce((max, c) => Math.max(max, c.id), 0) + 1;
 
-        let colaboradoresFinal = [...colaboradores];
-        const nuevasNotas = [];
-        let agregados = 0, actualizados = 0, omitidos = 0;
+        const nuevos = [];
+        const actualizables = []; // { existente, actualizado }
+        let omitidosPorNombre = 0;
 
         filas.forEach(fila => {
           const nombre = fila.nombre || fila.name || "";
@@ -1603,59 +1603,27 @@ function PantallaEstadoLaboral({
           const rol = normalizarRolImportado(fila.rol || fila.role || fila.cargo);
           const estadoJefe = normalizarEstadoLaboralImportado(fila.estadolaboral || fila["estado laboral"] || fila.estado_laboral);
           const casillero = fila.casillero || "";
-          const recomendacion = fila.recomendacion_bd_dotacion || fila["recomendacion bd dotacion"] || fila.recomendacion || "";
+          const recomendacion = (fila.recomendacion_bd_dotacion || fila["recomendacion bd dotacion"] || fila.recomendacion || "").trim();
 
           const existente = rut ? colabPorRut.get(rut) : null;
 
           if (existente) {
-            // Ya existe ese RUT.
-            if (!actualizarExistentes) { omitidos++; return; }
-            colaboradoresFinal = colaboradoresFinal.map(c =>
-              c.id === existente.id ? { ...c, nombre, apellidoPaterno, apellidoMaterno, area, rol, turnoActual, estadoJefe, casillero, rut } : c
-            );
-            actualizados++;
-
-            if (recomendacion.trim()) {
-              const textoNota = `Recomendación histórica (BD Dotación): ${recomendacion.trim()}`;
-              const yaExiste = notas.some(n => n.colabId === existente.id && n.nota === textoNota);
-              if (!yaExiste) {
-                nuevasNotas.push({ id: Date.now() + existente.id, colabId: existente.id, fecha: today(), nota: textoNota });
-              }
-            }
+            const actualizado = { ...existente, nombre, apellidoPaterno, apellidoMaterno, area, rol, turnoActual, estadoJefe, casillero, rut, recomendacion };
+            actualizables.push({ existente, actualizado });
             return;
           }
 
-          // No existe por RUT: revisar duplicado por nombre completo solo si no viene RUT.
-          if (!rut && existentesNombres.has(nombreCompletoFila.trim().toLowerCase())) { omitidos++; return; }
+          if (!rut && existentesNombres.has(nombreCompletoFila.trim().toLowerCase())) { omitidosPorNombre++; return; }
 
           const nuevoId = siguienteId++;
-          const nuevoColaborador = { id: nuevoId, rut, nombre, apellidoPaterno, apellidoMaterno, area, rol, turnoActual, estadoJefe, casillero };
-          colaboradoresFinal = [...colaboradoresFinal, nuevoColaborador];
-          agregados++;
-
-          if (recomendacion.trim()) {
-            nuevasNotas.push({
-              id: Date.now() + nuevoId,
-              colabId: nuevoId,
-              fecha: today(),
-              nota: `Recomendación histórica (BD Dotación): ${recomendacion.trim()}`,
-            });
-          }
-
-          if (rut) colabPorRut.set(rut, nuevoColaborador);
+          nuevos.push({ id: nuevoId, rut, nombre, apellidoPaterno, apellidoMaterno, area, rol, turnoActual, estadoJefe, casillero, recomendacion });
           existentesNombres.add(nombreCompletoFila.trim().toLowerCase());
         });
 
-        if (agregados === 0 && actualizados === 0) {
-          onToast(omitidos > 0 ? `No se importó nada: ${omitidos} ya existían (activa "Actualizar existentes" para sobrescribirlos)` : "El archivo no tiene filas válidas", "error");
+        if (nuevos.length === 0 && actualizables.length === 0) {
+          onToast(omitidosPorNombre > 0 ? `No se detectaron filas para importar: ${omitidosPorNombre} omitida(s) por nombre repetido sin RUT` : "El archivo no tiene filas válidas", "error");
         } else {
-          const ok = await saveColaboradores(colaboradoresFinal);
-          if (nuevasNotas.length > 0) await saveNotas([...notas, ...nuevasNotas]);
-          const partes = [];
-          if (agregados > 0) partes.push(`${agregados} agregado(s)`);
-          if (actualizados > 0) partes.push(`${actualizados} actualizado(s)`);
-          if (omitidos > 0) partes.push(`${omitidos} omitido(s) por duplicado`);
-          onToast(ok ? partes.join(", ") : "Error al guardar los colaboradores importados", ok ? "ok" : "error");
+          setPreviewImportacion({ nuevos, actualizables, omitidosPorNombre, nuevosAplicados: false, actualizadosAplicados: false });
         }
       } catch (err) {
         onToast("No se pudo leer el archivo. Verifica que sea un CSV válido.", "error");
@@ -1664,6 +1632,42 @@ function PantallaEstadoLaboral({
       if (fileInputRef.current) fileInputRef.current.value = "";
     };
     reader.readAsText(archivo, "UTF-8");
+  }
+
+  async function aplicarNuevos() {
+    if (!previewImportacion) return;
+    const { nuevos } = previewImportacion;
+    const colaboradoresFinal = [...colaboradores, ...nuevos];
+    const nuevasNotas = nuevos
+      .filter(n => n.recomendacion)
+      .map(n => ({ id: Date.now() + n.id, colabId: n.id, fecha: today(), nota: `Recomendación histórica (BD Dotación): ${n.recomendacion}` }));
+
+    const ok = await saveColaboradores(colaboradoresFinal);
+    if (nuevasNotas.length > 0) await saveNotas([...notas, ...nuevasNotas]);
+    onToast(ok ? `${nuevos.length} colaborador(es) agregado(s)` : "Error al agregar", ok ? "ok" : "error");
+    setPreviewImportacion(prev => prev && { ...prev, nuevosAplicados: true });
+  }
+
+  async function aplicarActualizacion() {
+    if (!previewImportacion) return;
+    const { actualizables } = previewImportacion;
+    const colaboradoresActualizados = actualizables.map(({ actualizado }) => {
+      const { recomendacion, ...limpio } = actualizado;
+      return limpio;
+    });
+    const colaboradoresFinal = colaboradores.map(c => {
+      const encontrado = colaboradoresActualizados.find(a => a.id === c.id);
+      return encontrado || c;
+    });
+    const nuevasNotas = actualizables
+      .filter(({ actualizado }) => actualizado.recomendacion)
+      .map(({ existente, actualizado }) => ({ id: Date.now() + existente.id, colabId: existente.id, fecha: today(), nota: `Recomendación histórica (BD Dotación): ${actualizado.recomendacion}` }))
+      .filter(n => !notas.some(existenteNota => existenteNota.colabId === n.colabId && existenteNota.nota === n.nota));
+
+    const ok = await saveColaboradoresUpsert(colaboradoresFinal, colaboradoresActualizados, "id");
+    if (nuevasNotas.length > 0) await saveNotas([...notas, ...nuevasNotas]);
+    onToast(ok ? `${actualizables.length} colaborador(es) actualizado(s)` : "Error al actualizar", ok ? "ok" : "error");
+    setPreviewImportacion(prev => prev && { ...prev, actualizadosAplicados: true });
   }
 
   return (
@@ -1701,20 +1705,48 @@ function PantallaEstadoLaboral({
               className="rounded-xl bg-indigo-600 disabled:opacity-50 text-white px-3.5 py-2 text-xs font-medium hover:bg-indigo-700 flex items-center gap-1.5"
             >
               {importando ? <Loader2 size={14} className="animate-spin" /> : <Plus size={14} />}
-              Importar CSV
+              Elegir archivo CSV
             </button>
             <input ref={fileInputRef} type="file" accept=".csv,text/csv" onChange={handleArchivoSeleccionado} className="hidden" />
           </div>
         </div>
-        <label className="flex items-center gap-2 text-xs text-slate-600 cursor-pointer w-fit">
-          <input
-            type="checkbox"
-            checked={actualizarExistentes}
-            onChange={e => setActualizarExistentes(e.target.checked)}
-            className="rounded border-slate-300"
-          />
-          Actualizar existentes si el RUT ya está cargado (en vez de omitirlos)
-        </label>
+
+        {previewImportacion && (
+          <div className="rounded-xl border border-slate-200 bg-slate-50 p-3 space-y-2.5">
+            <div className="flex items-center justify-between">
+              <p className="text-xs text-slate-600">
+                Se detectaron <strong>{previewImportacion.nuevos.length}</strong> colaborador(es) nuevo(s) y{" "}
+                <strong>{previewImportacion.actualizables.length}</strong> que ya existen (mismo RUT)
+                {previewImportacion.omitidosPorNombre > 0 ? `, ${previewImportacion.omitidosPorNombre} omitido(s) por nombre repetido sin RUT` : ""}.
+              </p>
+              <button onClick={() => setPreviewImportacion(null)} className="p-1 rounded-lg hover:bg-slate-200 shrink-0">
+                <XIcon size={14} className="text-slate-400" />
+              </button>
+            </div>
+            <div className="flex gap-2 flex-wrap">
+              {previewImportacion.nuevos.length > 0 && (
+                <button
+                  onClick={aplicarNuevos}
+                  disabled={previewImportacion.nuevosAplicados}
+                  className="rounded-lg bg-emerald-600 disabled:opacity-50 disabled:bg-emerald-600 text-white px-3 py-1.5 text-xs font-medium hover:bg-emerald-700 flex items-center gap-1.5"
+                >
+                  {previewImportacion.nuevosAplicados ? <Check size={13} /> : <Plus size={13} />}
+                  {previewImportacion.nuevosAplicados ? "Nuevos agregados" : `Agregar nuevos (${previewImportacion.nuevos.length})`}
+                </button>
+              )}
+              {previewImportacion.actualizables.length > 0 && (
+                <button
+                  onClick={aplicarActualizacion}
+                  disabled={previewImportacion.actualizadosAplicados}
+                  className="rounded-lg bg-amber-600 disabled:opacity-50 disabled:bg-amber-600 text-white px-3 py-1.5 text-xs font-medium hover:bg-amber-700 flex items-center gap-1.5"
+                >
+                  {previewImportacion.actualizadosAplicados ? <Check size={13} /> : <Pencil size={13} />}
+                  {previewImportacion.actualizadosAplicados ? "Existentes actualizados" : `Actualizar (${previewImportacion.actualizables.length})`}
+                </button>
+              )}
+            </div>
+          </div>
+        )}
       </Card>
 
       <div className="flex items-center gap-3">
