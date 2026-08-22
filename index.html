@@ -59,6 +59,7 @@ const LayoutGrid = (p) => <Icon {...p}><rect x="3" y="3" width="8" height="8" rx
 const Flag = (p) => <Icon {...p}><path d="M5 3v18" /><path d="M5 4h11l-2 4 2 4H5" /></Icon>;
 const Plus = (p) => <Icon {...p}><path d="M12 5v14M5 12h14" /></Icon>;
 const AlertTriangle = (p) => <Icon {...p}><path d="M12 3l10 18H2L12 3z" /><path d="M12 10v4M12 17h.01" /></Icon>;
+const Menu = (p) => <Icon {...p}><path d="M4 6h16M4 12h16M4 18h16" /></Icon>;
 
 // ---------------------------------------------------------------------------
 // CONSTANTES
@@ -478,13 +479,12 @@ function LoginJefeModal({ onClose, onSuccess }) {
 // ---------------------------------------------------------------------------
 // SIDEBAR
 // ---------------------------------------------------------------------------
-function Sidebar({ vista, setVista, modoJefe, onLogin, onLogout }) {
-  const NavItem = ({ id, label, IconComp, disabled }) => (
+function Sidebar({ vista, setVista, abierto, onCerrar }) {
+  const NavItem = ({ id, label, IconComp }) => (
     <button
-      onClick={() => !disabled && setVista(id)}
-      disabled={disabled}
+      onClick={() => { setVista(id); onCerrar(); }}
       className={`w-full flex items-center gap-3 px-3.5 py-2.5 rounded-xl text-sm font-medium transition
-        ${vista === id ? "bg-indigo-600 text-white" : disabled ? "text-slate-300 cursor-not-allowed" : "text-slate-600 hover:bg-slate-100"}`}
+        ${vista === id ? "bg-indigo-600 text-white" : "text-slate-600 hover:bg-slate-100"}`}
     >
       <IconComp size={17} />
       {label}
@@ -492,34 +492,33 @@ function Sidebar({ vista, setVista, modoJefe, onLogin, onLogout }) {
   );
 
   return (
-    <aside className="w-64 shrink-0 bg-white border-r border-slate-200 h-screen sticky top-0 flex flex-col">
-      <div className="px-5 py-5 border-b border-slate-100">
-        <p className="font-semibold text-slate-900 leading-tight">Asistencia de Producción</p>
-        <p className="text-xs text-slate-400 mt-0.5">Planta Curicó</p>
-      </div>
-
-      <nav className="flex-1 px-3 py-4 space-y-1">
-        <NavItem id="asistencia" label="Asistencia" IconComp={LayoutGrid} />
-        <NavItem id="indicadores" label="Indicadores" IconComp={BarChart3} disabled={!modoJefe} />
-        <NavItem id="estadoLaboral" label="Estado laboral" IconComp={UsersIcon} disabled={!modoJefe} />
-        <NavItem id="historial" label="Historial por persona" IconComp={HistoryIcon} disabled={!modoJefe} />
-      </nav>
-
-      <div className="px-3 py-4 border-t border-slate-100">
-        {modoJefe ? (
-          <div className="space-y-2">
-            <span className="block px-3.5 text-xs font-medium text-emerald-600">● Modo Jefe activo</span>
-            <button onClick={onLogout} className="w-full flex items-center gap-2 px-3.5 py-2.5 rounded-xl text-sm font-medium text-slate-600 hover:bg-slate-100">
-              <LogOut size={16} /> Salir de modo Jefe
-            </button>
+    <>
+      {abierto && (
+        <div className="fixed inset-0 bg-black/40 z-40 lg:hidden" onClick={onCerrar} />
+      )}
+      <aside
+        className={`fixed top-0 left-0 h-screen w-64 shrink-0 bg-white border-r border-slate-200
+          flex flex-col z-50 transition-transform duration-200
+          ${abierto ? "translate-x-0" : "-translate-x-full"} lg:translate-x-0`}
+      >
+        <div className="px-5 py-5 border-b border-slate-100 flex items-center justify-between">
+          <div className="min-w-0">
+            <p className="font-semibold text-slate-900 leading-tight truncate">Asistencia de Producción</p>
+            <p className="text-xs text-slate-400 mt-0.5">Planta Curicó</p>
           </div>
-        ) : (
-          <button onClick={onLogin} className="w-full flex items-center gap-2 px-3.5 py-2.5 rounded-xl text-sm font-medium text-slate-600 hover:bg-slate-100">
-            <Lock size={16} /> Entrar como Jefe
+          <button onClick={onCerrar} className="lg:hidden p-1 rounded-lg hover:bg-slate-100 shrink-0">
+            <XIcon size={18} className="text-slate-400" />
           </button>
-        )}
-      </div>
-    </aside>
+        </div>
+
+        <nav className="flex-1 px-3 py-4 space-y-1">
+          <NavItem id="asistencia" label="Asistencia" IconComp={LayoutGrid} />
+          <NavItem id="indicadores" label="Indicadores" IconComp={BarChart3} />
+          <NavItem id="estadoLaboral" label="Estado laboral" IconComp={UsersIcon} />
+          <NavItem id="historial" label="Historial por persona" IconComp={HistoryIcon} />
+        </nav>
+      </aside>
+    </>
   );
 }
 
@@ -541,7 +540,11 @@ function PantallaAsistencia({
       .filter(c => c.turnoActual === turnoSel)
       .filter(c => areaFiltro === "Todos" || c.area === areaFiltro)
       .filter(c => !q || nombreCompleto(c).toLowerCase().includes(q) || (c.rut && c.rut.toLowerCase().includes(q)))
-      .sort((a, b) => nombreCompleto(a).localeCompare(nombreCompleto(b)));
+      .sort((a, b) =>
+        (a.apellidoPaterno || "").localeCompare(b.apellidoPaterno || "") ||
+        (a.apellidoMaterno || "").localeCompare(b.apellidoMaterno || "") ||
+        (a.nombre || "").localeCompare(b.nombre || "")
+      );
   }, [colaboradores, turnoSel, areaFiltro, busqueda]);
 
   function setEstado(colabId, estado) {
@@ -643,7 +646,8 @@ function PantallaAsistencia({
       </div>
 
       <Card className="!p-0 overflow-hidden">
-        <table className="w-full text-sm">
+        <div className="overflow-x-auto">
+        <table className="w-full text-sm min-w-[760px]">
           <thead>
             <tr className="bg-slate-50 border-b border-slate-200 text-left text-xs text-slate-500">
               <th className="px-4 py-3 font-medium">Colaborador</th>
@@ -731,6 +735,7 @@ function PantallaAsistencia({
             )}
           </tbody>
         </table>
+        </div>
       </Card>
 
       {guardando && <ModalGuardando mensaje="Guardando asistencia del turno..." />}
@@ -957,7 +962,8 @@ function PantallaIndicadores({ colaboradores, registros }) {
     return (
       <Card className="!p-0 overflow-hidden">
         <p className="text-sm font-medium text-slate-900 flex items-center gap-2 px-5 pt-5 pb-3"><IconComp size={16} /> {titulo}</p>
-        <table className="w-full text-sm">
+        <div className="overflow-x-auto">
+        <table className="w-full text-sm min-w-[520px]">
           <thead>
             <tr className="bg-slate-50 border-y border-slate-200 text-left text-xs text-slate-500">
               <th className="px-5 py-2.5 font-medium">{colLabel}</th>
@@ -985,6 +991,7 @@ function PantallaIndicadores({ colaboradores, registros }) {
             ))}
           </tbody>
         </table>
+        </div>
       </Card>
     );
   }
@@ -1072,7 +1079,7 @@ function PantallaIndicadores({ colaboradores, registros }) {
         filas={porTurno.map(t => ({ label: t.turno.label, ...t }))}
       />
 
-      <div className="grid grid-cols-2 gap-5">
+      <div className="grid grid-cols-1 sm:grid-cols-2 gap-5">
         <Card>
           <p className="text-sm font-medium text-slate-900 flex items-center gap-2 mb-4"><BarChart3 size={16} /> Faltas por área</p>
           <div className="space-y-4">
@@ -1110,7 +1117,7 @@ function PantallaIndicadores({ colaboradores, registros }) {
 
       <Card>
         <p className="text-sm font-medium text-slate-900 mb-4">Top 5 por persona</p>
-        <div className="grid grid-cols-3 gap-5">
+        <div className="grid grid-cols-1 sm:grid-cols-3 gap-5">
           {[
             { titulo: "Más faltas", campo: "faltas", data: top5Faltas, color: "text-red-600", bg: "bg-red-100", etiqueta: "faltas" },
             { titulo: "Más licencias", campo: "licencias", data: top5Licencias, color: "text-blue-600", bg: "bg-blue-100", etiqueta: "licencias" },
@@ -1404,7 +1411,7 @@ function ModalNuevoColaborador({ colaboradores, saveColaboradores, onToast, onCl
           <button onClick={onClose} className="p-1 rounded-lg hover:bg-slate-100"><XIcon size={18} /></button>
         </div>
 
-        <div className="grid grid-cols-2 gap-3">
+        <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
           <div className="col-span-2">
             <label className="text-xs text-slate-500 mb-1 block">RUT</label>
             <input value={form.rut} onChange={e => set("rut", e.target.value)} placeholder="12345678-9" className={inputBase} />
@@ -1498,7 +1505,11 @@ function PantallaEstadoLaboral({
       .filter(c => filtro === "Todos" || c.estadoJefe === filtro)
       .filter(coincideRecomendacion)
       .filter(c => !q || nombreCompleto(c).toLowerCase().includes(q) || (c.rut && c.rut.toLowerCase().includes(q)))
-      .sort((a, b) => nombreCompleto(a).localeCompare(nombreCompleto(b)));
+      .sort((a, b) =>
+        (a.apellidoPaterno || "").localeCompare(b.apellidoPaterno || "") ||
+        (a.apellidoMaterno || "").localeCompare(b.apellidoMaterno || "") ||
+        (a.nombre || "").localeCompare(b.nombre || "")
+      );
   }, [colaboradores, filtro, filtroRecomendacion, busqueda]);
 
   async function confirmarCambioEstado(comentario) {
@@ -1927,9 +1938,9 @@ function PantallaEstadoLaboral({
       </div>
 
       {seleccionados.size > 0 && (
-        <div className="flex items-center justify-between gap-3 bg-indigo-50 border border-indigo-200 rounded-xl px-4 py-2.5">
+        <div className="flex items-center justify-between gap-3 flex-wrap bg-indigo-50 border border-indigo-200 rounded-xl px-4 py-2.5">
           <span className="text-sm text-indigo-900 font-medium">{seleccionados.size} colaborador(es) seleccionado(s)</span>
-          <div className="flex gap-2">
+          <div className="flex gap-2 flex-wrap">
             <button onClick={() => setSeleccionados(new Set())} className="text-xs text-indigo-700 px-3 py-1.5 rounded-lg hover:bg-indigo-100">
               Cancelar selección
             </button>
@@ -1941,7 +1952,8 @@ function PantallaEstadoLaboral({
       )}
 
       <Card className="!p-0 overflow-hidden">
-        <table className="w-full text-sm">
+        <div className="overflow-x-auto">
+        <table className="w-full text-sm min-w-[820px]">
           <thead>
             <tr className="bg-slate-50 border-b border-slate-200 text-left text-xs text-slate-500">
               <th className="px-4 py-3 font-medium w-8">
@@ -2078,6 +2090,7 @@ function PantallaEstadoLaboral({
             )}
           </tbody>
         </table>
+        </div>
       </Card>
 
       {pendingCambio && (
@@ -2122,7 +2135,11 @@ function PantallaHistorialPorPersona({ colaboradores, registros, historialTurnos
         const q = busqueda.toLowerCase();
         return nombreCompleto(c).toLowerCase().includes(q) || (c.rut && c.rut.toLowerCase().includes(q));
       })
-      .sort((a, b) => nombreCompleto(a).localeCompare(nombreCompleto(b)));
+      .sort((a, b) =>
+        (a.apellidoPaterno || "").localeCompare(b.apellidoPaterno || "") ||
+        (a.apellidoMaterno || "").localeCompare(b.apellidoMaterno || "") ||
+        (a.nombre || "").localeCompare(b.nombre || "")
+      );
   }, [colaboradores, busqueda]);
 
   const seleccionado = colaboradores.find(c => c.id === seleccionadoId) || null;
@@ -2198,9 +2215,9 @@ function PantallaHistorialPorPersona({ colaboradores, registros, historialTurnos
   }, [seleccionado, registros]);
 
   return (
-    <div className="flex gap-5" style={{ minHeight: "70vh" }}>
+    <div className="flex flex-col lg:flex-row gap-5" style={{ minHeight: "70vh" }}>
       {/* Lista de colaboradores */}
-      <Card className="!p-0 w-72 shrink-0 overflow-hidden flex flex-col">
+      <Card className="!p-0 w-full lg:w-72 lg:shrink-0 overflow-hidden flex flex-col max-h-72 lg:max-h-none">
         <div className="p-3 border-b border-slate-100">
           <input
             value={busqueda}
@@ -2237,7 +2254,7 @@ function PantallaHistorialPorPersona({ colaboradores, registros, historialTurnos
         ) : (
           <React.Fragment>
             <Card>
-              <div className="flex items-center gap-3">
+              <div className="flex items-center gap-3 flex-wrap">
                 <div className="w-12 h-12 rounded-full bg-indigo-100 text-indigo-700 flex items-center justify-center text-sm font-semibold shrink-0">
                   {iniciales(nombreCompleto(seleccionado))}
                 </div>
@@ -2299,6 +2316,7 @@ function AsistenciaApp() {
   const [vista, setVista] = useState("asistencia");
   const [modoJefe, setModoJefe] = useState(false);
   const [mostrarLogin, setMostrarLogin] = useState(false);
+  const [sidebarAbierta, setSidebarAbierta] = useState(false);
   const [colabHistorial, setColabHistorial] = useState(null);
 
   const [turnoSel, setTurnoSel] = useState("T1");
@@ -2406,6 +2424,7 @@ function AsistenciaApp() {
 
   function salirModoJefe() {
     setModoJefe(false);
+    setSidebarAbierta(false);
     if (vista !== "asistencia") setVista("asistencia");
   }
 
@@ -2425,27 +2444,51 @@ function AsistenciaApp() {
   }
 
   return (
-    <div className="min-h-screen bg-slate-50 flex">
-      <Sidebar
-        vista={vista}
-        setVista={setVista}
-        modoJefe={modoJefe}
-        onLogin={() => setMostrarLogin(true)}
-        onLogout={salirModoJefe}
-      />
+    <div className="min-h-screen bg-slate-50">
+      {modoJefe && (
+        <Sidebar
+          vista={vista}
+          setVista={setVista}
+          abierto={sidebarAbierta}
+          onCerrar={() => setSidebarAbierta(false)}
+        />
+      )}
 
-      <div className="flex-1 min-w-0">
-        <header className="bg-white border-b border-slate-200 px-8 py-5">
-          <h1 className="text-lg font-semibold text-slate-900">{titulos[vista]}</h1>
+      <div className={modoJefe ? "lg:pl-64" : ""}>
+        <header className="bg-white border-b border-slate-200 px-4 sm:px-8 py-4 sm:py-5 flex items-center justify-between gap-3 sticky top-0 z-30">
+          <div className="flex items-center gap-2.5 min-w-0">
+            {modoJefe && (
+              <button onClick={() => setSidebarAbierta(true)} className="lg:hidden p-1.5 -ml-1.5 rounded-lg hover:bg-slate-100 shrink-0">
+                <Menu size={20} className="text-slate-600" />
+              </button>
+            )}
+            <h1 className="text-base sm:text-lg font-semibold text-slate-900 truncate">{titulos[vista]}</h1>
+          </div>
+
+          {modoJefe ? (
+            <button
+              onClick={salirModoJefe}
+              className="shrink-0 flex items-center gap-1.5 rounded-xl border border-slate-200 px-2.5 sm:px-3.5 py-2 text-xs sm:text-sm font-medium text-slate-600 hover:bg-slate-50"
+            >
+              <LogOut size={15} /> <span className="hidden sm:inline">Salir de</span> Jefe
+            </button>
+          ) : (
+            <button
+              onClick={() => setMostrarLogin(true)}
+              className="shrink-0 flex items-center gap-1.5 rounded-xl bg-slate-900 text-white px-2.5 sm:px-3.5 py-2 text-xs sm:text-sm font-medium hover:bg-slate-800"
+            >
+              <Lock size={15} /> Entrar como Jefe
+            </button>
+          )}
         </header>
 
         {errorConexion && (
-          <div className="bg-red-50 border-b border-red-200 px-8 py-2.5 text-xs text-red-700">
+          <div className="bg-red-50 border-b border-red-200 px-4 sm:px-8 py-2.5 text-xs text-red-700">
             <strong>Error de conexión con la base de datos:</strong> {errorConexion}
           </div>
         )}
 
-        <main className="p-8 max-w-6xl">
+        <main className={`p-4 sm:p-8 max-w-6xl ${modoJefe ? "" : "mx-auto"}`}>
           {vista === "asistencia" && (
             <PantallaAsistencia
               colaboradores={colaboradores}
