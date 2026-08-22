@@ -169,8 +169,19 @@ function normalizarEstadoLaboralImportado(valorRaw) {
 
 // Parser CSV simple (soporta comillas dobles para campos con comas)
 function parseCSV(texto) {
+  // Quita el BOM de codificación que agregan algunos programas (como Excel)
+  // al guardar como CSV; si no se limpia, queda pegado al primer encabezado.
+  if (texto.charCodeAt(0) === 0xFEFF) texto = texto.slice(1);
+
   const lineas = texto.split(/\r?\n/).filter(l => l.trim().length > 0);
   if (lineas.length < 2) return [];
+
+  // Detecta si el archivo usa "," o ";" como separador (Excel en español suele
+  // exportar con ";"). Se decide mirando cuál aparece más veces en la primera línea.
+  const comas = (lineas[0].match(/,/g) || []).length;
+  const puntoYComa = (lineas[0].match(/;/g) || []).length;
+  const separador = puntoYComa > comas ? ";" : ",";
+
   function parseLinea(linea) {
     const campos = [];
     let actual = "";
@@ -178,7 +189,7 @@ function parseCSV(texto) {
     for (let i = 0; i < linea.length; i++) {
       const ch = linea[i];
       if (ch === '"') { entreComillas = !entreComillas; }
-      else if (ch === "," && !entreComillas) { campos.push(actual.trim()); actual = ""; }
+      else if (ch === separador && !entreComillas) { campos.push(actual.trim()); actual = ""; }
       else { actual += ch; }
     }
     campos.push(actual.trim());
