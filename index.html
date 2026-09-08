@@ -142,6 +142,21 @@ function nombreCompleto(c) { return [c.nombre, c.apellidoPaterno, c.apellidoMate
 function diasAtras(n) { const d = new Date(); d.setDate(d.getDate() - n); return fechaLocalISO(d); }
 function normalizarRut(rut) { return String(rut || "").trim().toUpperCase().replace(/\./g, "").replace(/\s+/g, ""); }
 
+// La lista de comentarios (hasta 3 por día) se guarda como texto JSON en la
+// celda "obs". parseComentarios acepta también el formato antiguo (un solo
+// texto plano antes de este cambio), para no perder datos ya guardados.
+function parseComentarios(raw) {
+  if (!raw) return [];
+  try {
+    const arr = JSON.parse(raw);
+    if (Array.isArray(arr)) return arr.filter(Boolean);
+  } catch {}
+  return [String(raw)];
+}
+function serializarComentarios(lista) {
+  return JSON.stringify((lista || []).filter(Boolean));
+}
+
 function normalizarRolImportado(cargoRaw) {
   if (!cargoRaw) return "Operario de Packing";
   const v = String(cargoRaw).trim().toUpperCase();
@@ -294,11 +309,28 @@ async function backendLote(operaciones) {
   });
 }
 
-function useSharedList(key) {
+// Referencia estable (definida fuera de cualquier componente) para deduplicar
+// registros de asistencia por fecha+turno+persona. Si esto se definiera dentro
+// del componente como función en línea, cambiaría de referencia en cada
+// render y provocaría que el useEffect de carga se reinicie sin parar.
+function dedupeRegistroPorClavePersona(r) {
+  return `${r.clave}|${r.colabId}`;
+}
+
+function useSharedList(key, dedupeBy) {
   const [items, setItems] = useState([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState(null);
   const ultimoValorCrudo = useRef(null);
+
+  // Si hay dedupeBy, se queda con la ÚLTIMA aparición de cada clave (los items
+  // más recientes van al final porque solo se agregan, nunca se insertan en medio).
+  const aplicarDedupe = useCallback((lista) => {
+    if (!dedupeBy) return lista;
+    const mapa = new Map();
+    lista.forEach(item => mapa.set(dedupeBy(item), item));
+    return Array.from(mapa.values());
+  }, [dedupeBy]);
 
   const cargar = useCallback(async (mostrarLoading) => {
     if (mostrarLoading) setLoading(true);
@@ -306,14 +338,14 @@ function useSharedList(key) {
       const data = await backendGet(key);
       if (data?.value && data.value !== ultimoValorCrudo.current) {
         ultimoValorCrudo.current = data.value;
-        setItems(JSON.parse(data.value));
+        setItems(aplicarDedupe(JSON.parse(data.value)));
       }
       setError(null);
     } catch (e) {
       setError(`No se pudo conectar con la base de datos: ${e?.message}`);
     }
     if (mostrarLoading) setLoading(false);
-  }, [key]);
+  }, [key, aplicarDedupe]);
 
   useEffect(() => {
     cargar(true);
@@ -525,13 +557,302 @@ function Sidebar({ vista, setVista, abierto, onCerrar }) {
 // ---------------------------------------------------------------------------
 // PANTALLA: ASISTENCIA (tabla)
 // ---------------------------------------------------------------------------
+function FilaComentarios({ comentarios, onAgregar, onQuitar, onGuardar }) {
+  const [texto, setTexto] = useState("");
+  const [guardandoUno, setGuardandoUno] = useState(false);
+  const lleno = comentarios.length >= 3;
+
+  function agregar() {
+    if (!texto.trim() || lleno) return;
+    onAgregar(texto);
+    setTexto("");
+  }
+
+  async function guardar() {
+    setGuardandoUno(true);
+    await onGuardar();
+    setGuardandoUno(false);
+  }
+
+  return (
+    <div className="max-w-lg space-y-2">
+      {comentarios.length > 0 && (
+        <ul className="space-y-1.5">
+          {comentarios.map((c, i) => (
+            <li key={i} className="flex items-start gap-2 bg-white border border-slate-200 rounded-lg px-3 py-2 text-xs text-slate-700">
+              <span className="flex-1">{c}</span>
+              <button onClick={() => onQuitar(i)} className="text-slate-300 hover:text-red-500 shrink-0">
+                <XIcon size={13} />
+              </button>
+            </li>
+          ))}
+        </ul>
+      )}
+
+      {lleno ? (
+        <p className="text-xs text-amber-600">Ya se agregaron 3 comentarios hoy para esta persona (el máximo por día).</p>
+      ) : (
+        <div className="flex gap-2">
+          <input
+            value={texto}
+            onChange={e => setTexto(e.target.value)}
+            onKeyDown={e => { if (e.key === "Enter") agregar(); }}
+            placeholder={`Agregar comentario (${comentarios.length}/3)`}
+            className={inputBase}
+          />
+          <button
+            onClick={agregar}
+            disabled={!texto.trim()}
+            className="rounded-xl bg-slate-900 disabled:opacity-40 text-white px-3 text-sm shrink-0 hover:bg-slate-800"
+          >
+            <Plus size={16} />
+          </button>
+        </div>
+      )}
+
+      <button
+        onClick={guardar}
+        disabled={guardandoUno || comentarios.length === 0}
+        className="rounded-xl bg-emerald-600 disabled:opacity-40 text-white px-3.5 py-2 text-xs font-medium hover:bg-emerald-700 flex items-center gap-1.5"
+      >
+        {guardandoUno ? <Loader2 size={14} className="animate-spin" /> : <Save size={14} />}
+        Guardar
+      </button>
+    </div>
+  );
+}
+
+function numeroSemanaISO(fechaObj) {
+  const d = new Date(Date.UTC(fechaObj.getFullYear(), fechaObj.getMonth(), fechaObj.getDate()));
+  const diaSemanaISO = d.getUTCDay() || 7; // lunes=1 ... domingo=7
+  d.setUTCDate(d.getUTCDate() + 4 - diaSemanaISO);
+  const inicioAnio = new Date(Date.UTC(d.getUTCFullYear(), 0, 1));
+  return Math.ceil((((d - inicioAnio) / 86400000) + 1) / 7);
+}
+
+function diasDelMes(mesISO) {
+  const [anio, mes] = mesISO.split("-").map(Number);
+  const cantidadDias = new Date(anio, mes, 0).getDate();
+  const dias = [];
+  for (let d = 1; d <= cantidadDias; d++) {
+    const fechaObj = new Date(anio, mes - 1, d);
+    const fecha = `${anio}-${String(mes).padStart(2, "0")}-${String(d).padStart(2, "0")}`;
+    dias.push({
+      fecha,
+      diaMes: d,
+      diaSemana: fechaObj.toLocaleDateString("es-CL", { weekday: "short" }).replace(".", ""),
+      numeroSemana: numeroSemanaISO(fechaObj),
+    });
+  }
+  return dias;
+}
+
+function TablaMensual({ colaboradores, registros, turnoSel, setTurnoSel, areaFiltro, setAreaFiltro, mesSel, setMesSel, onIrADia }) {
+  const [busqueda, setBusqueda] = useState("");
+  const [soloConFaltas, setSoloConFaltas] = useState(false);
+
+  const dias = useMemo(() => diasDelMes(mesSel), [mesSel]);
+
+  const gruposSemana = useMemo(() => {
+    const grupos = [];
+    dias.forEach(d => {
+      const ultimo = grupos[grupos.length - 1];
+      if (ultimo && ultimo.numeroSemana === d.numeroSemana) {
+        ultimo.cantidad++;
+      } else {
+        grupos.push({ numeroSemana: d.numeroSemana, cantidad: 1 });
+      }
+    });
+    return grupos;
+  }, [dias]);
+
+  const visibles = useMemo(() => {
+    return colaboradores
+      .filter(c => !ESTADOS_INACTIVOS.includes(c.estadoJefe))
+      .filter(c => c.turnoActual === turnoSel)
+      .filter(c => areaFiltro === "Todos" || c.area === areaFiltro)
+      .sort((a, b) =>
+        (a.apellidoPaterno || "").localeCompare(b.apellidoPaterno || "") ||
+        (a.apellidoMaterno || "").localeCompare(b.apellidoMaterno || "") ||
+        (a.nombre || "").localeCompare(b.nombre || "")
+      );
+  }, [colaboradores, turnoSel, areaFiltro]);
+
+  const registrosPorPersonaYFecha = useMemo(() => {
+    const mapa = {};
+    registros.filter(r => r.turno === turnoSel && r.fecha.startsWith(mesSel)).forEach(r => {
+      mapa[`${r.colabId}|${r.fecha}`] = r;
+    });
+    return mapa;
+  }, [registros, turnoSel, mesSel]);
+
+  // Se precalculan los datos del mes por persona (para poder filtrar por
+  // faltas antes de dibujar), y se aplican ahí mismo la búsqueda y el filtro.
+  const filasConDatos = useMemo(() => {
+    const q = busqueda.trim().toLowerCase();
+    return visibles
+      .filter(c => !q || nombreCompleto(c).toLowerCase().includes(q) || (c.rut && c.rut.toLowerCase().includes(q)))
+      .map(c => {
+        const registrosPersona = dias.map(d => registrosPorPersonaYFecha[`${c.id}|${d.fecha}`]);
+        const totalA = registrosPersona.filter(r => r?.estado === "A").length;
+        const totalF = registrosPersona.filter(r => r?.estado === "F").length;
+        const totalL = registrosPersona.filter(r => r?.estado === "L").length;
+        const totalMarcados = registrosPersona.filter(Boolean).length;
+        const pctAsist = totalMarcados ? Math.round((totalA / totalMarcados) * 100) : null;
+        return { c, registrosPersona, totalA, totalF, totalL, pctAsist };
+      })
+      .filter(f => !soloConFaltas || f.totalF >= 2);
+  }, [visibles, dias, registrosPorPersonaYFecha, busqueda, soloConFaltas]);
+
+  function cambiarMes(delta) {
+    const [a, m] = mesSel.split("-").map(Number);
+    const d = new Date(a, m - 1 + delta, 1);
+    setMesSel(`${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}`);
+  }
+
+  return (
+    <div className="space-y-4">
+      <div className="flex flex-wrap items-center gap-3 justify-between">
+        <div className="flex items-center gap-3 flex-wrap">
+          <div className="flex items-center gap-1 bg-white border border-slate-200 rounded-xl px-2 py-1.5">
+            <button onClick={() => cambiarMes(-1)} className="p-1 rounded-lg hover:bg-slate-100"><ChevronRight size={15} className="rotate-180 text-slate-500" /></button>
+            <input
+              type="month"
+              value={mesSel}
+              onChange={e => setMesSel(e.target.value)}
+              className="text-sm bg-transparent focus:outline-none px-1"
+            />
+            <button onClick={() => cambiarMes(1)} className="p-1 rounded-lg hover:bg-slate-100"><ChevronRight size={15} className="text-slate-500" /></button>
+          </div>
+
+          <div className="flex bg-white border border-slate-200 rounded-xl p-1 gap-1">
+            {TURNOS.map(t => (
+              <button
+                key={t.key}
+                onClick={() => setTurnoSel(t.key)}
+                className={`px-3 py-1.5 rounded-lg text-xs font-medium flex items-center gap-1.5 transition
+                  ${turnoSel === t.key ? "bg-slate-900 text-white" : "text-slate-600 hover:bg-slate-100"}`}
+              >
+                <t.Icon size={14} /> {t.label}
+              </button>
+            ))}
+          </div>
+
+          <div className="flex gap-1.5">
+            {["Todos", ...AREAS].map(a => (
+              <button
+                key={a}
+                onClick={() => setAreaFiltro(a)}
+                className={`rounded-full px-3 py-1.5 text-xs font-medium border transition
+                  ${areaFiltro === a ? "bg-indigo-600 text-white border-indigo-600" : "bg-white text-slate-600 border-slate-200 hover:bg-slate-50"}`}
+              >
+                {a}
+              </button>
+            ))}
+          </div>
+        </div>
+        <p className="text-xs text-slate-400">Haz clic en un día para editarlo en la vista diaria.</p>
+      </div>
+
+      <div className="flex flex-wrap items-center gap-3 justify-between">
+        <input
+          value={busqueda}
+          onChange={e => setBusqueda(e.target.value)}
+          placeholder="Buscar por RUT o nombre..."
+          className={inputBase + " max-w-xs"}
+        />
+        <button
+          onClick={() => setSoloConFaltas(v => !v)}
+          className={`flex items-center gap-1.5 rounded-xl px-3.5 py-2.5 text-xs font-medium border transition shrink-0
+            ${soloConFaltas ? "bg-red-600 text-white border-red-600" : "bg-white text-slate-600 border-slate-200 hover:bg-slate-50"}`}
+        >
+          <AlertTriangle size={14} /> Solo con 2+ faltas este mes
+        </button>
+      </div>
+
+      <Card className="!p-0 overflow-hidden">
+        <div className="overflow-x-auto">
+          <table className="text-sm border-collapse">
+            <thead>
+              <tr>
+                <th rowSpan={2} className="sticky left-0 z-10 bg-slate-50 border-b border-r border-slate-200 px-3 py-2 text-left text-xs font-medium text-slate-500 min-w-[180px] align-bottom">Colaborador</th>
+                {gruposSemana.map((g, i) => (
+                  <th key={i} colSpan={g.cantidad} className="border-b border-slate-200 bg-slate-100 px-1 py-1 text-center text-[10px] font-medium text-slate-500">
+                    Semana {g.numeroSemana}
+                  </th>
+                ))}
+                <th rowSpan={2} className="border-b border-l border-slate-200 px-2.5 py-2 text-center text-xs font-medium text-emerald-600 min-w-[50px] align-bottom">Asist.</th>
+                <th rowSpan={2} className="border-b border-slate-200 px-2.5 py-2 text-center text-xs font-medium text-slate-500 min-w-[50px] align-bottom">%Asist.</th>
+                <th rowSpan={2} className="border-b border-slate-200 px-2.5 py-2 text-center text-xs font-medium text-red-600 min-w-[50px] align-bottom">Faltas</th>
+                <th rowSpan={2} className="border-b border-slate-200 px-2.5 py-2 text-center text-xs font-medium text-blue-600 min-w-[55px] align-bottom">Licenc.</th>
+              </tr>
+              <tr>
+                {dias.map(d => (
+                  <th key={d.fecha} className="border-b border-slate-200 px-1.5 py-1 text-center text-[10px] font-medium text-slate-400 min-w-[34px]">
+                    <div className="capitalize">{d.diaSemana}</div>
+                    <div className="text-slate-600">{d.diaMes}</div>
+                  </th>
+                ))}
+              </tr>
+            </thead>
+            <tbody>
+              {filasConDatos.map(({ c, registrosPersona, totalA, totalF, totalL, pctAsist }) => {
+                const requiereAtencion = totalF >= 2;
+
+                return (
+                  <tr key={c.id} className="hover:bg-slate-50/60">
+                    <td className={`sticky left-0 z-10 border-r border-b border-slate-100 px-3 py-1.5 ${requiereAtencion ? "bg-red-50" : "bg-white"}`}>
+                      <p
+                        className={`text-xs font-medium truncate max-w-[170px] ${requiereAtencion ? "text-red-700" : "text-slate-900"}`}
+                        title={requiereAtencion ? "2 o más faltas este mes" : undefined}
+                      >
+                        {nombreCompleto(c)}
+                      </p>
+                      <p className="text-[10px] text-slate-400 truncate max-w-[170px]">{c.area}</p>
+                    </td>
+                    {dias.map(d => {
+                      const r = registrosPorPersonaYFecha[`${c.id}|${d.fecha}`];
+                      const e = r ? ESTADO_MAP[r.estado] : null;
+                      return (
+                        <td key={d.fecha} className="border-b border-slate-100 text-center p-0.5">
+                          <button
+                            onClick={() => onIrADia(d.fecha)}
+                            title={e ? e.label : "Sin marcar — clic para editar"}
+                            className={`w-7 h-7 rounded-md inline-flex items-center justify-center hover:ring-2 hover:ring-indigo-200
+                              ${e ? `${e.light} ${e.texto}` : "text-slate-200 hover:bg-slate-50"}`}
+                          >
+                            {e ? <e.Icon size={13} /> : <span className="text-xs">·</span>}
+                          </button>
+                        </td>
+                      );
+                    })}
+                    <td className="border-b border-l border-slate-100 text-center text-xs font-semibold text-emerald-700">{totalA}</td>
+                    <td className="border-b border-slate-100 text-center text-xs text-slate-500">{pctAsist !== null ? `${pctAsist}%` : "—"}</td>
+                    <td className="border-b border-slate-100 text-center text-xs font-semibold text-red-600">{totalF}</td>
+                    <td className="border-b border-slate-100 text-center text-xs font-semibold text-blue-600">{totalL}</td>
+                  </tr>
+                );
+              })}
+              {filasConDatos.length === 0 && (
+                <tr><td colSpan={dias.length + 5} className="px-4 py-10 text-center text-slate-400">No hay colaboradores que coincidan con estos filtros.</td></tr>
+              )}
+            </tbody>
+          </table>
+        </div>
+      </Card>
+    </div>
+  );
+}
+
 function PantallaAsistencia({
   colaboradores, registros, estadoLocal, setEstadoLocal, turnoSel, setTurnoSel,
-  fechaSel, setFechaSel, areaFiltro, setAreaFiltro, onGuardar, guardando,
-  modoJefe, onIrHistorialPersona, claveTurno,
+  fechaSel, setFechaSel, areaFiltro, setAreaFiltro, onGuardar, onGuardarPersona, guardando,
+  modoJefe, claveTurno,
 }) {
   const [filaAbierta, setFilaAbierta] = useState(null);
   const [busqueda, setBusqueda] = useState("");
+  const [vistaTabla, setVistaTabla] = useState("diaria"); // "diaria" | "mensual"
+  const [mesSel, setMesSel] = useState(fechaSel.slice(0, 7)); // "YYYY-MM"
 
   const visibles = useMemo(() => {
     const q = busqueda.trim().toLowerCase();
@@ -550,8 +871,19 @@ function PantallaAsistencia({
   function setEstado(colabId, estado) {
     setEstadoLocal(prev => ({ ...prev, [colabId]: { ...prev[colabId], estado } }));
   }
-  function setObs(colabId, obs) {
-    setEstadoLocal(prev => ({ ...prev, [colabId]: { ...prev[colabId], obs } }));
+  function agregarComentario(colabId, texto) {
+    if (!texto || !texto.trim()) return;
+    setEstadoLocal(prev => {
+      const actual = prev[colabId]?.obs || [];
+      if (actual.length >= 3) return prev;
+      return { ...prev, [colabId]: { ...prev[colabId], obs: [...actual, texto.trim()] } };
+    });
+  }
+  function quitarComentario(colabId, indice) {
+    setEstadoLocal(prev => {
+      const actual = prev[colabId]?.obs || [];
+      return { ...prev, [colabId]: { ...prev[colabId], obs: actual.filter((_, i) => i !== indice) } };
+    });
   }
   function marcarTodos(estado) {
     setEstadoLocal(prev => {
@@ -569,6 +901,23 @@ function PantallaAsistencia({
 
   return (
     <div className="space-y-5">
+      <div className="flex bg-slate-100 rounded-xl p-1 gap-1 w-fit">
+        <button
+          onClick={() => setVistaTabla("diaria")}
+          className={`px-4 py-1.5 rounded-lg text-xs font-medium transition ${vistaTabla === "diaria" ? "bg-white text-slate-900 shadow-sm" : "text-slate-500"}`}
+        >
+          Vista diaria
+        </button>
+        <button
+          onClick={() => setVistaTabla("mensual")}
+          className={`px-4 py-1.5 rounded-lg text-xs font-medium transition ${vistaTabla === "mensual" ? "bg-white text-slate-900 shadow-sm" : "text-slate-500"}`}
+        >
+          Vista mensual
+        </button>
+      </div>
+
+      {vistaTabla === "diaria" && (
+      <>
       <div className="flex flex-wrap items-center gap-3 justify-between">
         <div className="flex items-center gap-3 flex-wrap">
           <div className="flex items-center gap-2 bg-white border border-slate-200 rounded-xl px-3 py-2">
@@ -658,13 +1007,12 @@ function PantallaAsistencia({
               <th className="px-4 py-3 font-medium text-center">L</th>
               <th className="px-4 py-3 font-medium text-center">V</th>
               {modoJefe && <th className="px-4 py-3 font-medium">Obs.</th>}
-              {modoJefe && <th className="px-4 py-3 font-medium text-center">Turnos</th>}
             </tr>
           </thead>
           <tbody>
             {visibles.map(c => {
               const actual = estadoLocal[c.id] || {};
-              const obsCount = registros.filter(r => r.colabId === c.id && r.clave !== claveTurno && r.obs && r.obs.trim()).length;
+              const comentarios = actual.obs || [];
               const abierta = filaAbierta === c.id;
               return (
                 <Fragment key={c.id}>
@@ -697,32 +1045,21 @@ function PantallaAsistencia({
                     {modoJefe && (
                       <td className="px-4 py-3">
                         <button onClick={() => setFilaAbierta(abierta ? null : c.id)} className="text-slate-400 hover:text-slate-600 flex items-center gap-1 text-xs">
-                          {actual.obs ? "Ver nota" : "Agregar"}
-                          <span className={`text-[10px] rounded-full px-1.5 ${obsCount >= 3 ? "bg-amber-100 text-amber-700" : "bg-slate-100 text-slate-400"}`}>{obsCount}/3</span>
+                          {comentarios.length > 0 ? "Ver comentarios" : "Agregar"}
+                          <span className={`text-[10px] rounded-full px-1.5 ${comentarios.length >= 3 ? "bg-amber-100 text-amber-700" : "bg-slate-100 text-slate-400"}`}>{comentarios.length}/3</span>
                           {abierta ? <ChevronDown size={13} /> : <ChevronRight size={13} />}
-                        </button>
-                      </td>
-                    )}
-                    {modoJefe && (
-                      <td className="px-4 py-3 text-center">
-                        <button onClick={() => onIrHistorialPersona(c)} className="p-1.5 rounded-lg hover:bg-slate-100" title="Historial de turnos">
-                          <HistoryIcon size={16} className="text-slate-400" />
                         </button>
                       </td>
                     )}
                   </tr>
                   {modoJefe && abierta && (
                     <tr className="border-b border-slate-100 bg-slate-50/40">
-                      <td colSpan={9} className="px-4 py-3">
-                        {obsCount >= 3 && !actual.obs && (
-                          <p className="text-xs text-amber-600 mb-1.5">Esta persona ya tiene 3 observaciones guardadas. Si agregas una nueva, se eliminará la más antigua.</p>
-                        )}
-                        <textarea
-                          value={actual.obs || ""}
-                          onChange={ev => setObs(c.id, ev.target.value)}
-                          placeholder="Observación (opcional)"
-                          rows={2}
-                          className={inputBase + " max-w-lg"}
+                      <td colSpan={8} className="px-4 py-3">
+                        <FilaComentarios
+                          comentarios={comentarios}
+                          onAgregar={texto => agregarComentario(c.id, texto)}
+                          onQuitar={indice => quitarComentario(c.id, indice)}
+                          onGuardar={() => onGuardarPersona(c.id)}
                         />
                       </td>
                     </tr>
@@ -731,12 +1068,28 @@ function PantallaAsistencia({
               );
             })}
             {visibles.length === 0 && (
-              <tr><td colSpan={modoJefe ? 9 : 7} className="px-4 py-10 text-center text-slate-400">No hay colaboradores en este turno/área.</td></tr>
+              <tr><td colSpan={modoJefe ? 8 : 7} className="px-4 py-10 text-center text-slate-400">No hay colaboradores en este turno/área.</td></tr>
             )}
           </tbody>
         </table>
         </div>
       </Card>
+      </>
+      )}
+
+      {vistaTabla === "mensual" && (
+        <TablaMensual
+          colaboradores={colaboradores}
+          registros={registros}
+          turnoSel={turnoSel}
+          setTurnoSel={setTurnoSel}
+          areaFiltro={areaFiltro}
+          setAreaFiltro={setAreaFiltro}
+          mesSel={mesSel}
+          setMesSel={setMesSel}
+          onIrADia={(fecha) => { setFechaSel(fecha); setVistaTabla("diaria"); }}
+        />
+      )}
 
       {guardando && <ModalGuardando mensaje="Guardando asistencia del turno..." />}
     </div>
@@ -904,7 +1257,7 @@ function PantallaIndicadores({ colaboradores, registros }) {
         ...c,
         faltas: regs.filter(r => r.estado === "F").length,
         licencias: regs.filter(r => r.estado === "L").length,
-        observaciones: regs.filter(r => r.obs && r.obs.trim()).length,
+        observaciones: regs.reduce((total, r) => total + parseComentarios(r.obs).length, 0),
       };
     });
   }, [colaboradores, registrosPeriodo]);
@@ -931,6 +1284,30 @@ function PantallaIndicadores({ colaboradores, registros }) {
     const pctCumplimiento = total ? Math.round(((total - incumplimientos.length) / total) * 100) : 100;
     return { total, incumplimientos, pctCumplimiento };
   }, [colaboradores]);
+
+  // Ausentismo semanal: ¿cuántas semanas distintas del período tuvo cada
+  // persona al menos 1 falta? Sirve para detectar patrones de "falta 1 vez
+  // por semana" que un % general de faltas no deja ver tan claro.
+  function indiceSemana(fechaISO, fechaInicioISO) {
+    const d1 = new Date(fechaInicioISO + "T00:00:00");
+    const d2 = new Date(fechaISO + "T00:00:00");
+    const dias = Math.round((d2 - d1) / (1000 * 60 * 60 * 24));
+    return Math.floor(dias / 7);
+  }
+
+  const ausentismoSemanal = useMemo(() => {
+    const diasTotales = Math.round((new Date(fechaFin + "T00:00:00") - new Date(fechaInicio + "T00:00:00")) / (1000 * 60 * 60 * 24)) + 1;
+    const totalSemanas = Math.max(1, Math.ceil(diasTotales / 7));
+
+    return colaboradores
+      .map(c => {
+        const faltasC = registrosPeriodo.filter(r => r.colabId === c.id && r.estado === "F");
+        const semanas = new Set(faltasC.map(r => indiceSemana(r.fecha, fechaInicio)));
+        return { ...c, semanasConFalta: semanas.size, totalSemanas, ratio: semanas.size / totalSemanas };
+      })
+      .filter(c => c.semanasConFalta > 0)
+      .sort((a, b) => b.ratio - a.ratio || b.semanasConFalta - a.semanasConFalta);
+  }, [colaboradores, registrosPeriodo, fechaInicio, fechaFin]);
 
   // Conteo A/F/L/V para un conjunto de registros
   function contar(regs) {
@@ -1143,6 +1520,29 @@ function PantallaIndicadores({ colaboradores, registros }) {
                   </div>
                 ))}
               </div>
+            </div>
+          ))}
+        </div>
+      </Card>
+
+      <Card>
+        <p className="text-sm font-medium text-slate-900 flex items-center gap-2 mb-1"><CalendarDays size={16} /> Ausentismo semanal recurrente</p>
+        <p className="text-xs text-slate-400 mb-4">Personas que faltaron al menos una vez por semana durante el período (no solo cuántas faltas en total, sino con qué frecuencia se repiten).</p>
+        {ausentismoSemanal.length === 0 && <p className="text-sm text-slate-400 py-4 text-center">Sin faltas registradas en el período.</p>}
+        <div className="space-y-2 max-h-80 overflow-y-auto pr-1">
+          {ausentismoSemanal.map(c => (
+            <div key={c.id} className="flex items-center gap-3 py-1.5">
+              <div className="w-8 h-8 rounded-full bg-indigo-100 text-indigo-700 flex items-center justify-center text-[11px] font-semibold shrink-0">
+                {iniciales(nombreCompleto(c))}
+              </div>
+              <div className="min-w-0 flex-1">
+                <p className="text-sm text-slate-900 truncate">{nombreCompleto(c)}</p>
+                <p className="text-xs text-slate-500">{c.area}</p>
+              </div>
+              <span className={`text-xs font-semibold rounded-full px-2.5 py-1 shrink-0 ${c.ratio >= 0.8 ? "bg-red-100 text-red-700" : c.ratio >= 0.5 ? "bg-amber-100 text-amber-700" : "bg-slate-100 text-slate-500"}`}>
+                {c.semanasConFalta}/{c.totalSemanas} semanas
+              </span>
+              <span className="text-xs text-slate-400 shrink-0 w-10 text-right">{Math.round(c.ratio * 100)}%</span>
             </div>
           ))}
         </div>
@@ -2150,6 +2550,7 @@ function PantallaHistorialPorPersona({ colaboradores, registros, historialTurnos
 
     registros.filter(r => r.colabId === seleccionado.id).forEach(r => {
       const e = ESTADO_MAP[r.estado];
+      const comentariosRegistro = parseComentarios(r.obs);
       eventos.push({
         tipo: "asistencia",
         fecha: r.fecha,
@@ -2158,7 +2559,7 @@ function PantallaHistorialPorPersona({ colaboradores, registros, historialTurnos
         color: e?.texto || "text-slate-600",
         bg: e?.light || "bg-slate-100",
         titulo: `${e?.label || r.estado} · ${r.turno}`,
-        detalle: r.obs || null,
+        detalle: comentariosRegistro.length > 0 ? comentariosRegistro.join(" · ") : null,
       });
     });
 
@@ -2307,7 +2708,7 @@ function PantallaHistorialPorPersona({ colaboradores, registros, historialTurnos
 // ---------------------------------------------------------------------------
 function AsistenciaApp() {
   const [colaboradores, saveColaboradores, loadingColab, errorColab, saveColaboradoresUpsert, _colabAgregarNoUsado, setColaboradoresLocal] = useSharedList("asist-colaboradores");
-  const [registros, saveRegistros, loadingReg, errorReg, saveRegistrosUpsert, _regAgregarNoUsado, setRegistrosLocal] = useSharedList("asist-registros");
+  const [registros, saveRegistros, loadingReg, errorReg, saveRegistrosUpsert, saveRegistrosAgregar, setRegistrosLocal] = useSharedList("asist-registros", dedupeRegistroPorClavePersona);
   const [historialTurnos, saveHistorial, loadingHist, errorHist, saveHistorialUpsert, saveHistorialAgregar, setHistorialTurnosLocal] = useSharedList("asist-turnos-historial");
   const [historialEstado, saveHistorialEstado, loadingHistEstado, errorHistEstado, saveHistorialEstadoUpsert, saveHistorialEstadoAgregar, setHistorialEstadoLocal] = useSharedList("asist-historial-estado");
   const [notas, saveNotas, loadingNotas, errorNotas, saveNotasUpsert, saveNotasAgregar] = useSharedList("asist-notas");
@@ -2336,7 +2737,7 @@ function AsistenciaApp() {
   useEffect(() => {
     const map = {};
     registros.filter(r => r.clave === claveTurno).forEach(r => {
-      map[r.colabId] = { estado: r.estado, obs: r.obs || "" };
+      map[r.colabId] = { estado: r.estado, obs: parseComentarios(r.obs) };
     });
     setEstadoLocal(map);
   }, [claveTurno, loadingReg]);
@@ -2346,80 +2747,77 @@ function AsistenciaApp() {
     setTimeout(() => setToast(null), 4500);
   }
 
-  // Conserva máximo 3 observaciones (las más recientes) por colaborador; el resto se vacía.
-  // Igual que antes, pero además devuelve qué índices quedaron modificados
-  // (a los que se les vació la observación por pasar el límite de 3).
-  function limitarObservaciones(regs) {
-    const porPersona = {};
-    regs.forEach((r, idx) => {
-      if (r.obs && r.obs.trim()) {
-        (porPersona[r.colabId] = porPersona[r.colabId] || []).push({ idx, fecha: r.fecha });
-      }
-    });
-    const copia = regs.map(r => ({ ...r }));
-    const idxModificados = new Set();
-    Object.values(porPersona).forEach(lista => {
-      if (lista.length > 3) {
-        lista.sort((a, b) => b.fecha.localeCompare(a.fecha));
-        lista.slice(3).forEach(item => { copia[item.idx].obs = ""; idxModificados.add(item.idx); });
-      }
-    });
-    return { combinados: copia, idxModificados };
-  }
-
   async function guardarAsistencia() {
     setGuardando(true);
     const otros = registros.filter(r => r.clave !== claveTurno);
-    // Migración automática: si algún registro antiguo no tiene "id" (viene de
-    // antes de esta optimización), se le asigna aquí. No requiere acción del usuario.
-    const necesitaMigracion = otros.some(r => !r.id);
-    const otrosConId = otros.map(r => r.id ? r : { ...r, id: `${r.clave}_${r.colabId}` });
 
     const nuevos = Object.entries(estadoLocal)
       .filter(([, v]) => v?.estado)
       .map(([colabId, v]) => {
         const colabIdNum = Number(colabId);
         return {
-          id: `${claveTurno}_${colabIdNum}`,
           clave: claveTurno,
           colabId: colabIdNum,
           estado: v.estado,
-          obs: v.obs || "",
+          obs: serializarComentarios(v.obs),
           fecha: fechaSel,
           turno: turnoSel,
         };
       });
 
-    const { combinados, idxModificados } = limitarObservaciones([...otrosConId, ...nuevos]);
-
+    // Siempre se agrega al final (nunca se busca ni se reescribe una fila
+    // existente), lo que hace que guardar sea rápido sin importar cuánto
+    // haya crecido la hoja de registros a lo largo de la temporada.
+    setRegistrosLocal([...otros, ...nuevos]);
     let ok = false;
-    if (necesitaMigracion) {
-      // Primera vez: hay que escribir todo una vez para que todos los
-      // registros queden con "id". De ahí en adelante ya no hace falta.
-      ok = await saveRegistros(combinados);
-    } else {
-      // Solo se envían los registros que realmente cambiaron: los de este
-      // turno más los que perdieron su observación por el límite de 3.
-      const idsNuevos = new Set(nuevos.map(r => r.id));
-      const modificados = combinados.filter((r, idx) => idxModificados.has(idx) || idsNuevos.has(r.id));
-      setRegistrosLocal(combinados);
-      try {
-        const data = await backendUpsert("asist-registros", modificados, "id");
-        ok = !!data?.ok;
-      } catch (e) { ok = false; }
-    }
+    try {
+      const data = await backendAgregar("asist-registros", nuevos);
+      ok = !!data?.ok;
+    } catch (e) { ok = false; }
 
     setGuardando(false);
     if (ok) {
-      // Se limpian las observaciones ya guardadas para empezar una nueva la
+      // Se limpian los comentarios ya guardados para empezar de cero la
       // próxima vez; el estado A/F/L/V marcado se mantiene tal cual.
       setEstadoLocal(prev => {
         const next = {};
-        Object.entries(prev).forEach(([colabId, v]) => { next[colabId] = { ...v, obs: "" }; });
+        Object.entries(prev).forEach(([colabId, v]) => { next[colabId] = { ...v, obs: [] }; });
         return next;
       });
     }
     mostrarToast(ok ? "Asistencia guardada correctamente" : "Error al guardar la asistencia", ok ? "ok" : "error");
+  }
+
+  // Guarda el registro de UNA sola persona (usado por el botón "Guardar"
+  // junto a los comentarios, para no tener que esperar a guardar todo el turno).
+  async function guardarRegistroIndividual(colabId) {
+    const v = estadoLocal[colabId];
+    if (!v?.estado) {
+      mostrarToast("Marca un estado (A/F/L/V) para esta persona antes de guardar", "error");
+      return false;
+    }
+    const registro = {
+      clave: claveTurno,
+      colabId: Number(colabId),
+      estado: v.estado,
+      obs: serializarComentarios(v.obs),
+      fecha: fechaSel,
+      turno: turnoSel,
+    };
+    const otros = registros.filter(r => !(r.clave === claveTurno && r.colabId === Number(colabId)));
+    setRegistrosLocal([...otros, registro]);
+
+    let ok = false;
+    try {
+      const data = await backendAgregar("asist-registros", [registro]);
+      ok = !!data?.ok;
+    } catch (e) { ok = false; }
+
+    if (ok) {
+      setEstadoLocal(prev => ({ ...prev, [colabId]: { ...prev[colabId], obs: [] } }));
+    }
+    mostrarToast(ok ? "Comentario(s) guardado(s)" : "Error al guardar", ok ? "ok" : "error");
+    return ok;
   }
 
   function salirModoJefe() {
@@ -2503,9 +2901,9 @@ function AsistenciaApp() {
               areaFiltro={areaFiltro}
               setAreaFiltro={setAreaFiltro}
               onGuardar={guardarAsistencia}
+              onGuardarPersona={guardarRegistroIndividual}
               guardando={guardando}
               modoJefe={modoJefe}
-              onIrHistorialPersona={setColabHistorial}
             />
           )}
 
