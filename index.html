@@ -775,7 +775,7 @@ function TablaMensual({ colaboradores, registros, turnoSel, setTurnoSel, areaFil
           <table className="text-sm border-collapse">
             <thead>
               <tr>
-                <th rowSpan={2} className="sticky left-0 z-10 bg-slate-50 border-b border-r border-slate-200 px-3 py-2 text-left text-xs font-medium text-slate-500 min-w-[180px] align-bottom">Colaborador</th>
+                <th rowSpan={2} className="sticky left-0 z-10 bg-slate-50 border-b border-r border-slate-200 px-3 py-2 text-left text-xs font-medium text-slate-500 min-w-[210px] align-bottom">Colaborador</th>
                 {gruposSemana.map((g, i) => (
                   <th key={i} colSpan={g.cantidad} className="border-b border-slate-200 bg-slate-100 px-1 py-1 text-center text-[10px] font-medium text-slate-500">
                     Semana {g.numeroSemana}
@@ -803,12 +803,12 @@ function TablaMensual({ colaboradores, registros, turnoSel, setTurnoSel, areaFil
                   <tr key={c.id} className="hover:bg-slate-50/60">
                     <td className={`sticky left-0 z-10 border-r border-b border-slate-100 px-3 py-1.5 ${requiereAtencion ? "bg-red-50" : "bg-white"}`}>
                       <p
-                        className={`text-xs font-medium truncate max-w-[170px] ${requiereAtencion ? "text-red-700" : "text-slate-900"}`}
+                        className={`text-xs font-medium truncate max-w-[200px] ${requiereAtencion ? "text-red-700" : "text-slate-900"}`}
                         title={requiereAtencion ? "2 o más faltas este mes" : undefined}
                       >
                         {nombreCompleto(c)}
                       </p>
-                      <p className="text-[10px] text-slate-400 truncate max-w-[170px]">{c.area}</p>
+                      <p className="text-[10px] text-slate-400 truncate max-w-[200px]">{c.area} · {c.rol}</p>
                     </td>
                     {dias.map(d => {
                       const r = registrosPorPersonaYFecha[`${c.id}|${d.fecha}`];
