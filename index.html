@@ -869,7 +869,13 @@ function PantallaAsistencia({
   }, [colaboradores, turnoSel, areaFiltro, busqueda]);
 
   function setEstado(colabId, estado) {
-    setEstadoLocal(prev => ({ ...prev, [colabId]: { ...prev[colabId], estado } }));
+    setEstadoLocal(prev => {
+      const actual = prev[colabId]?.estado;
+      // Si se hace click sobre el estado ya seleccionado, se deselecciona
+      // (queda en null) en vez de dejarlo marcado para siempre.
+      const nuevoEstado = actual === estado ? null : estado;
+      return { ...prev, [colabId]: { ...prev[colabId], estado: nuevoEstado } };
+    });
   }
   function agregarComentario(colabId, texto) {
     if (!texto || !texto.trim()) return;
@@ -2752,13 +2758,17 @@ function AsistenciaApp() {
     const otros = registros.filter(r => r.clave !== claveTurno);
 
     const nuevos = Object.entries(estadoLocal)
-      .filter(([, v]) => v?.estado)
+      // Se incluye tanto a quienes tienen un estado marcado como a quienes
+      // lo dejaron explícitamente en null (deseleccionado), para que esa
+      // deselección también se guarde como el registro más reciente.
+      // Se excluye solo a quienes nunca se tocaron (estado === undefined).
+      .filter(([, v]) => v && v.estado !== undefined)
       .map(([colabId, v]) => {
         const colabIdNum = Number(colabId);
         return {
           clave: claveTurno,
           colabId: colabIdNum,
-          estado: v.estado,
+          estado: v.estado || "",
           obs: serializarComentarios(v.obs),
           fecha: fechaSel,
           turno: turnoSel,
@@ -2792,14 +2802,17 @@ function AsistenciaApp() {
   // junto a los comentarios, para no tener que esperar a guardar todo el turno).
   async function guardarRegistroIndividual(colabId) {
     const v = estadoLocal[colabId];
-    if (!v?.estado) {
+    // Solo se bloquea si la persona nunca fue tocada (sin estado y sin
+    // registro previo). Si el estado quedó en null porque se deseleccionó
+    // a propósito, sí se debe poder guardar esa deselección.
+    if (!v || v.estado === undefined) {
       mostrarToast("Marca un estado (A/F/L/V) para esta persona antes de guardar", "error");
       return false;
     }
     const registro = {
       clave: claveTurno,
       colabId: Number(colabId),
-      estado: v.estado,
+      estado: v.estado || "",
       obs: serializarComentarios(v.obs),
       fecha: fechaSel,
       turno: turnoSel,
