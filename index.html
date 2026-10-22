@@ -667,16 +667,25 @@ function TablaMensual({ colaboradores, registros, turnoSel, setTurnoSel, areaFil
   }, [dias]);
 
   const visibles = useMemo(() => {
+    // Además de quienes hoy pertenecen a este turno, se incluye a quienes
+    // tienen asistencia registrada en este turno durante el mes mostrado
+    // (por ejemplo, alguien que fue cambiado de turno a mitad de mes).
+    const conRegistroEnMes = new Set();
+    registros.forEach(r => {
+      if (r.turno === turnoSel && r.estado && r.fecha && r.fecha.startsWith(mesSel)) {
+        conRegistroEnMes.add(Number(r.colabId));
+      }
+    });
     return colaboradores
       .filter(c => !ESTADOS_INACTIVOS.includes(c.estadoJefe))
-      .filter(c => c.turnoActual === turnoSel)
+      .filter(c => c.turnoActual === turnoSel || conRegistroEnMes.has(Number(c.id)))
       .filter(c => areaFiltro === "Todos" || c.area === areaFiltro)
       .sort((a, b) =>
         (a.apellidoPaterno || "").localeCompare(b.apellidoPaterno || "") ||
         (a.apellidoMaterno || "").localeCompare(b.apellidoMaterno || "") ||
         (a.nombre || "").localeCompare(b.nombre || "")
       );
-  }, [colaboradores, turnoSel, areaFiltro]);
+  }, [colaboradores, registros, turnoSel, areaFiltro, mesSel]);
 
   const registrosPorPersonaYFecha = useMemo(() => {
     const mapa = {};
@@ -1631,15 +1640,16 @@ function ModalCambioLote({ colaboradoresSeleccionados, onClose, onConfirm }) {
   const [estadoNuevo, setEstadoNuevo] = useState("activo");
   const [turnoNuevo, setTurnoNuevo] = useState("T1");
   const [recomendacionNueva, setRecomendacionNueva] = useState("Volver a Llamar");
+  const [areaNueva, setAreaNueva] = useState(AREAS[0]);
   const [comentario, setComentario] = useState("");
   const [guardando, setGuardando] = useState(false);
 
-  const requiereComentario = tipoCambio !== "recomendacion";
+  const requiereComentario = tipoCambio === "estado" || tipoCambio === "turno";
 
   async function confirmar() {
     if (requiereComentario && comentario.trim().length === 0) return;
     setGuardando(true);
-    const valor = tipoCambio === "estado" ? estadoNuevo : tipoCambio === "turno" ? turnoNuevo : recomendacionNueva;
+    const valor = tipoCambio === "estado" ? estadoNuevo : tipoCambio === "turno" ? turnoNuevo : tipoCambio === "area" ? areaNueva : recomendacionNueva;
     await onConfirm(tipoCambio, valor, comentario.trim());
     setGuardando(false);
   }
@@ -1670,6 +1680,12 @@ function ModalCambioLote({ colaboradoresSeleccionados, onClose, onConfirm }) {
             className={`flex-1 rounded-lg py-1.5 text-[11px] font-medium transition ${tipoCambio === "turno" ? "bg-white text-slate-900 shadow-sm" : "text-slate-500"}`}
           >
             Turno
+          </button>
+          <button
+            onClick={() => setTipoCambio("area")}
+            className={`flex-1 rounded-lg py-1.5 text-[11px] font-medium transition ${tipoCambio === "area" ? "bg-white text-slate-900 shadow-sm" : "text-slate-500"}`}
+          >
+            Área
           </button>
           <button
             onClick={() => setTipoCambio("recomendacion")}
@@ -1712,6 +1728,25 @@ function ModalCambioLote({ colaboradoresSeleccionados, onClose, onConfirm }) {
                 </button>
               ))}
             </div>
+          </div>
+        )}
+
+        {tipoCambio === "area" && (
+          <div>
+            <label className="text-xs text-slate-500 mb-1.5 block">Nueva área</label>
+            <div className="flex flex-wrap gap-1.5">
+              {AREAS.map(a => (
+                <button
+                  key={a}
+                  onClick={() => setAreaNueva(a)}
+                  className={`rounded-lg px-2.5 py-1.5 text-[11px] font-medium border transition
+                    ${areaNueva === a ? "bg-indigo-600 text-white border-indigo-600" : "bg-white text-slate-600 border-slate-200 hover:bg-slate-50"}`}
+                >
+                  {a}
+                </button>
+              ))}
+            </div>
+            <p className="text-xs text-slate-400 mt-2">Este cambio no queda en el historial de la persona, solo actualiza el dato.</p>
           </div>
         )}
 
@@ -2047,8 +2082,9 @@ function PantallaEstadoLaboral({
         ok ? "ok" : "error"
       );
     } else {
-      // recomendacion: solo actualiza el dato, no queda en el historial.
-      const colaboradoresActualizados = colaboradoresSeleccionados.map(c => ({ ...c, recomendacion: valorNuevo }));
+      // area / recomendacion: solo actualiza el dato, no queda en el historial.
+      const campo = tipoCambio === "area" ? "area" : "recomendacion";
+      const colaboradoresActualizados = colaboradoresSeleccionados.map(c => ({ ...c, [campo]: valorNuevo }));
       const nuevosColab = colaboradores.map(c =>
         idsSeleccionados.includes(c.id) ? colaboradoresActualizados.find(a => a.id === c.id) : c
       );
@@ -2056,7 +2092,7 @@ function PantallaEstadoLaboral({
       ok = await saveColaboradoresUpsert(nuevosColab, colaboradoresActualizados, "id");
       onToast(
         ok
-          ? `${colaboradoresSeleccionados.length} colaborador(es) actualizados a "${valorNuevo || "Sin recomendación"}"`
+          ? `${colaboradoresSeleccionados.length} colaborador(es) ${tipoCambio === "area" ? "pasaron al área" : "actualizados a"} "${valorNuevo || "Sin recomendación"}"`
           : "Error al actualizar en lote",
         ok ? "ok" : "error"
       );
@@ -2351,7 +2387,7 @@ function PantallaEstadoLaboral({
               Cancelar selección
             </button>
             <button onClick={() => setMostrarCambioLote(true)} className="text-xs bg-indigo-600 text-white px-3.5 py-1.5 rounded-lg font-medium hover:bg-indigo-700">
-              Cambiar estado en lote
+              Cambiar estado / turno / área en lote
             </button>
           </div>
         </div>
