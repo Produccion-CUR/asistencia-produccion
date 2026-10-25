@@ -236,11 +236,32 @@ const INTERVALO_SINCRONIZACION_MS = 12000; // cada cuánto revisa cambios de otr
 // Apps Script no maneja bien ejecuciones simultáneas: si varios datasets piden
 // datos al mismo tiempo, algunas solicitudes fallan o se demoran de más.
 // Esta cola asegura que todas las llamadas al backend se hagan una por una.
-let __colaBackend = Promise.resolve();
-function encolarBackend(fn) {
-  const resultado = __colaBackend.then(fn, fn);
-  __colaBackend = resultado.then(() => {}, () => {});
-  return resultado;
+// Las escrituras (alta prioridad) pasan por delante de las lecturas que están
+// esperando turno, para que un guardado no tenga que esperar a que terminen
+// varias sincronizaciones automáticas seguidas.
+const __colaAlta = [];
+const __colaBaja = [];
+let __colaActiva = false;
+let __escriturasPendientes = 0;
+function __procesarCola() {
+  if (__colaActiva) return;
+  const tarea = __colaAlta.shift() || __colaBaja.shift();
+  if (!tarea) return;
+  __colaActiva = true;
+  Promise.resolve().then(tarea.fn).then(tarea.resolve, tarea.reject).finally(() => {
+    __colaActiva = false;
+    __procesarCola();
+  });
+}
+function encolarBackend(fn, alta = false) {
+  return new Promise((resolve, reject) => {
+    if (alta) __escriturasPendientes++;
+    const envuelta = alta
+      ? () => fn().finally(() => { __escriturasPendientes--; })
+      : fn;
+    (alta ? __colaAlta : __colaBaja).push({ fn: envuelta, resolve, reject });
+    __procesarCola();
+  });
 }
 
 async function backendGet(key) {
@@ -261,7 +282,7 @@ async function backendSet(key, value) {
     });
     if (!res.ok) throw new Error(`HTTP ${res.status}`);
     return res.json();
-  });
+  }, true);
 }
 
 // Actualiza/agrega SOLO los items indicados (identificados por claveCampo,
@@ -276,7 +297,7 @@ async function backendUpsert(key, items, claveCampo = "id") {
     });
     if (!res.ok) throw new Error(`HTTP ${res.status}`);
     return res.json();
-  });
+  }, true);
 }
 
 // Agrega filas nuevas al final de la hoja, sin tocar las existentes.
@@ -290,7 +311,7 @@ async function backendAgregar(key, items) {
     });
     if (!res.ok) throw new Error(`HTTP ${res.status}`);
     return res.json();
-  });
+  }, true);
 }
 
 // Ejecuta varias operaciones ({modo, key, items|value, claveCampo}) en UNA sola
@@ -306,7 +327,7 @@ async function backendLote(operaciones) {
     });
     if (!res.ok) throw new Error(`HTTP ${res.status}`);
     return res.json();
-  });
+  }, true);
 }
 
 // Referencia estable (definida fuera de cualquier componente) para deduplicar
@@ -317,7 +338,7 @@ function dedupeRegistroPorClavePersona(r) {
   return `${r.clave}|${r.colabId}`;
 }
 
-function useSharedList(key, dedupeBy) {
+function useSharedList(key, dedupeBy, intervaloMs = INTERVALO_SINCRONIZACION_MS) {
   const [items, setItems] = useState([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState(null);
@@ -349,7 +370,12 @@ function useSharedList(key, dedupeBy) {
 
   useEffect(() => {
     cargar(true);
-    const intervalo = setInterval(() => cargar(false), INTERVALO_SINCRONIZACION_MS);
+    const intervalo = setInterval(() => {
+      // No se consulta si la pestaña está oculta o hay un guardado en curso
+      // (la lectura retrasaría el guardado y podría pisar el cambio recién hecho).
+      if (document.hidden || __escriturasPendientes > 0) return;
+      cargar(false);
+    }, intervaloMs);
     return () => clearInterval(intervalo);
   }, [cargar]);
 
@@ -1971,6 +1997,7 @@ function PantallaEstadoLaboral({
     // Actualiza la pantalla al instante; la escritura real va combinada en UNA sola llamada de red.
     setColaboradoresLocal(nuevosColab);
     setHistorialEstadoLocal(nuevoHistorial);
+    setPendingCambio(null); // se cierra de inmediato; el guardado sigue en segundo plano
 
     let ok = false;
     try {
@@ -2014,6 +2041,9 @@ function PantallaEstadoLaboral({
 
   async function confirmarCambioLote(tipoCambio, valorNuevo, comentario) {
     const idsSeleccionados = Array.from(seleccionados);
+    // La pantalla se actualiza al instante; el guardado sigue en segundo plano.
+    setSeleccionados(new Set());
+    setMostrarCambioLote(false);
     const colaboradoresSeleccionados = colaboradores.filter(c => idsSeleccionados.includes(c.id));
     let ok = false;
 
@@ -2097,8 +2127,6 @@ function PantallaEstadoLaboral({
         ok ? "ok" : "error"
       );
     }
-    setSeleccionados(new Set());
-    setMostrarCambioLote(false);
   }
 
   async function guardarCasillero(id) {
@@ -2751,9 +2779,9 @@ function PantallaHistorialPorPersona({ colaboradores, registros, historialTurnos
 function AsistenciaApp() {
   const [colaboradores, saveColaboradores, loadingColab, errorColab, saveColaboradoresUpsert, _colabAgregarNoUsado, setColaboradoresLocal] = useSharedList("asist-colaboradores");
   const [registros, saveRegistros, loadingReg, errorReg, saveRegistrosUpsert, saveRegistrosAgregar, setRegistrosLocal] = useSharedList("asist-registros", dedupeRegistroPorClavePersona);
-  const [historialTurnos, saveHistorial, loadingHist, errorHist, saveHistorialUpsert, saveHistorialAgregar, setHistorialTurnosLocal] = useSharedList("asist-turnos-historial");
-  const [historialEstado, saveHistorialEstado, loadingHistEstado, errorHistEstado, saveHistorialEstadoUpsert, saveHistorialEstadoAgregar, setHistorialEstadoLocal] = useSharedList("asist-historial-estado");
-  const [notas, saveNotas, loadingNotas, errorNotas, saveNotasUpsert, saveNotasAgregar] = useSharedList("asist-notas");
+  const [historialTurnos, saveHistorial, loadingHist, errorHist, saveHistorialUpsert, saveHistorialAgregar, setHistorialTurnosLocal] = useSharedList("asist-turnos-historial", undefined, 60000);
+  const [historialEstado, saveHistorialEstado, loadingHistEstado, errorHistEstado, saveHistorialEstadoUpsert, saveHistorialEstadoAgregar, setHistorialEstadoLocal] = useSharedList("asist-historial-estado", undefined, 60000);
+  const [notas, saveNotas, loadingNotas, errorNotas, saveNotasUpsert, saveNotasAgregar] = useSharedList("asist-notas", undefined, 60000);
   const errorConexion = errorColab || errorReg || errorHist || errorHistEstado || errorNotas;
 
   const [vista, setVista] = useState("asistencia");
